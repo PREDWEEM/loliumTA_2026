@@ -5,6 +5,7 @@
 # - Percentiles d25–d95 calculados sobre la curva disponible (truncada)
 # - Clasificación Temprano / Extendido + confianza (ALTA / MEDIA / BAJA)
 # - Momento crítico en fecha calendario real
+# - Fuente de datos FIJA: meteo_daily.csv
 # ===============================================================
 
 import streamlit as st
@@ -35,7 +36,7 @@ def safe(fn, msg):
         return None
 
 # ===============================================================
-# 🔧 API METEOBAHIA (7 días) — OPCIONAL
+# 🔧 API METEOBAHIA (7 días) — OPCIONAL (no usada en esta versión)
 # ===============================================================
 API_URL = "https://meteobahia.com.ar/scripts/forecast/for-ta.xml"
 
@@ -82,7 +83,7 @@ class PracticalANNModel:
         self.input_max = np.array([300, 41, 25.5, 84])
 
     def normalize(self, X):
-        return 2*(X - self.input_min)/(self.input_max - self.input_min)-1
+        return 2 * (X - self.input_min) / (self.input_max - self.input_min) - 1
 
     def predict(self, Xreal):
         """
@@ -244,27 +245,20 @@ with st.sidebar:
     window_size   = st.slider("Ventana de suavizado (días)", min_value=1, max_value=9, value=3, step=1)
     clip_zero     = st.checkbox("Recortar negativos a 0", value=True)
 
-fuente = st.radio("Fuente de datos:", [
-    "Histórico (meteo_daily.csv)",
-    "Subir archivo CSV"
-])
+# ===============================================================
+# 🔧 CARGA FIJA DESDE meteo_daily.csv
+# ===============================================================
+path_daily = BASE / "meteo_daily.csv"
 
-df = None
-if fuente == "Histórico (meteo_daily.csv)":
-    if not (BASE/"meteo_daily.csv").exists():
-        st.error("No se encontró meteo_daily.csv")
-        st.stop()
-    df = pd.read_csv(BASE/"meteo_daily.csv", parse_dates=["Fecha"])
-else:
-    up = st.file_uploader("Subir meteo_history.csv", type=["csv"])
-    if up:
-        df = pd.read_csv(up, parse_dates=["Fecha"])
-
-if df is None:
+if not path_daily.exists():
+    st.error("❌ No se encontró meteo_daily.csv en el directorio de la app.")
     st.stop()
 
+df = pd.read_csv(path_daily, parse_dates=["Fecha"])
+
+# Aseguramos orden y Julian_days
+df = df.dropna(subset=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
 df["Julian_days"] = df["Fecha"].dt.dayofyear
-df = df.sort_values("Fecha")
 
 # ===============================================================
 # 🔧 ANN → EMERREL cruda + POST-PROCESO
@@ -374,14 +368,14 @@ st.markdown(f"""
 # ===============================================================
 st.subheader("Curva del año vs centroides históricos (forma normalizada)")
 
-dias_x, curva_x    = curva([d25, d50, d75, d95])
-dias_ext, curva_ext   = curva(centroides[0])
+dias_x,   curva_x    = curva([d25, d50, d75, d95])
+dias_ext, curva_ext  = curva(centroides[0])
 dias_temp, curva_temp = curva(centroides[1])
 
 fig, ax = plt.subplots(figsize=(9,5))
-ax.plot(dias_x,   curva_x,   lw=3, label="Año evaluado (parcial)",   color="blue")
-ax.plot(dias_temp, curva_temp, lw=2, label="Centroide Temprano",     color="green")
-ax.plot(dias_ext,  curva_ext,  lw=2, label="Centroide Extendido",    color="orange")
+ax.plot(dias_x,    curva_x,    lw=3, label="Año evaluado (parcial)",   color="blue")
+ax.plot(dias_temp, curva_temp, lw=2, label="Centroide Temprano",       color="green")
+ax.plot(dias_ext,  curva_ext,  lw=2, label="Centroide Extendido",      color="orange")
 ax.set_xlabel("Día juliano (escala normalizada)")
 ax.set_ylabel("EMERAC relativa (0–1)")
 ax.legend()
@@ -558,3 +552,4 @@ else:
 # ===============================================================
 # FIN DEL SCRIPT
 # ===============================================================
+
