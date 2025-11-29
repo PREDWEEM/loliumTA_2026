@@ -19,7 +19,7 @@ from pathlib import Path
 # 🔧 CONFIG STREAMLIT
 # ===============================================================
 st.set_page_config(
-    page_title="PREDWEEM v7.2 – Emergencia + Patrón (datos parciales)",
+    page_title="PREDWEEM v7.2 – LOLIUM TA 2026",
     layout="wide",
 )
 
