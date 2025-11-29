@@ -1,5 +1,5 @@
 # ===============================================================
-# 🌾 PREDWEEM v7.2 — ANN + Clasificación robusta con datos parciales
+# 🌾 PREDWEEM v7.2 — LOLIUM TRES ARROYOS 2026
 # - ANN → EMERREL diaria
 # - Post-proceso: recorte negativos, suavizado opcional, acumulado
 # - Percentiles d25–d95 calculados sobre la curva disponible (truncada)
