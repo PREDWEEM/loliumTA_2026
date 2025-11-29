@@ -236,7 +236,7 @@ def radar_multiseries(values_dict, labels, title):
 # ===============================================================
 # 🔧 UI PRINCIPAL
 # ===============================================================
-st.title("🌾 PREDWEEM v7.2 — ANN + Clasificación robusta con datos parciales")
+st.title("🌾 PREDWEEM v7.2 — LOLIUM TRES ARROYOS 2026")
 
 # ---- Controles de post-proceso en el sidebar ----
 with st.sidebar:
