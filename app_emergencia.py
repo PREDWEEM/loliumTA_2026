@@ -301,14 +301,18 @@ with col_er:
 with col_ac:
     fig_ac, ax_ac = plt.subplots(figsize=(5,4))
     if emerac_raw[-1] > 0:
-        ax_ac.plot(dias, emerac_raw/emerac_raw[-1], label="EMERAC cruda (normalizada)", color="orange", alpha=0.6)
+    ax_ac.plot(fechas, emerac_raw/emerac_raw[-1], label="EMERAC cruda (normalizada)", color="orange", alpha=0.6)
     else:
-        ax_ac.plot(dias, emerac_raw, label="EMERAC cruda", color="orange", alpha=0.6)
+        ax_ac.plot(fechas, emerac_raw, label="EMERAC cruda", color="orange", alpha=0.6)
+    
     if emerac[-1] > 0:
-        ax_ac.plot(dias, emerac/emerac[-1], label="EMERAC procesada (normalizada)", color="green", linewidth=2)
+        ax_ac.plot(fechas, emerac/emerac[-1], label="EMERAC procesada (normalizada)", color="green", linewidth=2)
     else:
-        ax_ac.plot(dias, emerac, label="EMERAC procesada", color="green", linewidth=2)
-    ax_ac.set_xlabel("Día juliano")
+        ax_ac.plot(fechas, emerac, label="EMERAC procesada", color="green", linewidth=2)
+    
+    ax_ac.set_xlabel("Fecha calendario")
+    fig_ac.autofmt_xdate()
+ 
     ax_ac.set_ylabel("EMERAC (0–1 relativo al período)")
     ax_ac.set_title("EMERAC: ANN vs post-proceso")
     ax_ac.legend()
