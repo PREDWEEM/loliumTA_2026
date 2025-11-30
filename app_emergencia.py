@@ -288,10 +288,11 @@ col_er, col_ac = st.columns(2)
 
 with col_er:
     fig_er, ax_er = plt.subplots(figsize=(5,4))
-    ax_er.plot(dias, emerrel_raw, label="EMERREL cruda (ANN)", color="red", alpha=0.6)
-    ax_er.plot(dias, emerrel,     label="EMERREL procesada",   color="blue", linewidth=2)
+    ax_er.plot(fechas, emerrel_raw, label="EMERREL cruda (ANN)", color="red", alpha=0.6)
+    ax_er.plot(fechas, emerrel,     label="EMERREL procesada",   color="blue", linewidth=2)
     ax_er.set_xlabel("Fecha calendario")
     fig_er.autofmt_xdate()
+   
     ax_er.set_ylabel("EMERREL (fracción diaria)")
     ax_er.set_title("EMERREL: ANN vs post-proceso")
     ax_er.legend()
