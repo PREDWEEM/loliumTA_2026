@@ -280,42 +280,84 @@ dias   = df["Julian_days"].to_numpy()
 fechas = df["Fecha"].to_numpy()
 
 # ===============================================================
-# 🔧 GRÁFICOS MOSTRATIVOS EMERREL / EMERAC
+# 🔧 GRÁFICOS MOSTRATIVOS EMERREL / EMERAC  (EJE X = FECHAS REALES)
 # ===============================================================
 st.subheader("🔍 EMERGENCIA diaria y acumulada — Cruda vs Procesada")
 
 col_er, col_ac = st.columns(2)
 
+# ---------------------------------------------------------------
+# EMERREL diaria (cruda vs procesada)
+# ---------------------------------------------------------------
 with col_er:
     fig_er, ax_er = plt.subplots(figsize=(5,4))
-    ax_er.plot(fechas, emerrel_raw, label="EMERREL cruda (ANN)", color="red", alpha=0.6)
-    ax_er.plot(fechas, emerrel,     label="EMERREL procesada",   color="blue", linewidth=2)
-    ax_er.set_xlabel("Fecha calendario")
-    fig_er.autofmt_xdate()
-   
+
+    ax_er.plot(
+        fechas, emerrel_raw,
+        label="EMERREL cruda (ANN)",
+        color="red",
+        alpha=0.6
+    )
+
+    ax_er.plot(
+        fechas, emerrel,
+        label="EMERREL procesada",
+        color="blue",
+        linewidth=2
+    )
+
+    ax_er.set_xlabel("Fecha calendario real")
     ax_er.set_ylabel("EMERREL (fracción diaria)")
     ax_er.set_title("EMERREL: ANN vs post-proceso")
     ax_er.legend()
+    fig_er.autofmt_xdate()
+
     st.pyplot(fig_er)
 
+# ---------------------------------------------------------------
+# EMERAC acumulada (cruda vs procesada)
+# ---------------------------------------------------------------
 with col_ac:
     fig_ac, ax_ac = plt.subplots(figsize=(5,4))
+
+    # Curva cruda normalizada cuando corresponde
     if emerac_raw[-1] > 0:
-    ax_ac.plot(fechas, emerac_raw/emerac_raw[-1], label="EMERAC cruda (normalizada)", color="orange", alpha=0.6)
+        ax_ac.plot(
+            fechas, emerac_raw / emerac_raw[-1],
+            label="EMERAC cruda (normalizada)",
+            color="orange",
+            alpha=0.6
+        )
     else:
-        ax_ac.plot(fechas, emerac_raw, label="EMERAC cruda", color="orange", alpha=0.6)
-    
+        ax_ac.plot(
+            fechas, emerac_raw,
+            label="EMERAC cruda",
+            color="orange",
+            alpha=0.6
+        )
+
+    # Curva procesada normalizada
     if emerac[-1] > 0:
-        ax_ac.plot(fechas, emerac/emerac[-1], label="EMERAC procesada (normalizada)", color="green", linewidth=2)
+        ax_ac.plot(
+            fechas, emerac / emerac[-1],
+            label="EMERAC procesada (normalizada)",
+            color="green",
+            linewidth=2
+        )
     else:
-        ax_ac.plot(fechas, emerac, label="EMERAC procesada", color="green", linewidth=2)
-    
-    ax_ac.set_xlabel("Fecha calendario")
-    fig_ac.autofmt_xdate()
- 
+        ax_ac.plot(
+            fechas, emerac,
+            label="EMERAC procesada",
+            color="green",
+            linewidth=2
+        )
+
+    ax_ac.set_xlabel("Fecha calendario real")
     ax_ac.set_ylabel("EMERAC (0–1 relativo al período)")
     ax_ac.set_title("EMERAC: ANN vs post-proceso")
     ax_ac.legend()
+    fig_ac.autofmt_xdate()
+
     st.pyplot(fig_ac)
 
 # ===============================================================
