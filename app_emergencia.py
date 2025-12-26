@@ -198,9 +198,9 @@ df["EMERREL"] = emerrel
 df["EMERAC"]  = emerac
 
 # ===============================================================
-# ⛔ REGLA AGRONÓMICA: NO EMERGENCIA ANTES DE JD 20
+# ⛔ REGLA AGRONÓMICA: NO EMERGENCIA ANTES DE JD 15
 # ===============================================================
-mask_pre = df["Julian_days"] <= 20
+mask_pre = df["Julian_days"] <= 15
 
 df.loc[mask_pre, "EMERREL"] = 0.0
 
@@ -417,12 +417,12 @@ def interpolate_curve(jd, y, jd_common):
 
 # ---------------------------------------------------------------
 # Curva del año evaluado (normalizada)
-# + Regla agronómica: EMERREL = 0 desde JD 1 a 20 inclusive
+# + Regla agronómica: EMERREL = 0 desde JD 1 a 15 inclusive
 # ---------------------------------------------------------------
 emerrel_for_year = np.array(emerrel, dtype=float).copy()
 
-# Regla biológica: no emergencia antes de JD 20
-emerrel_for_year[dias <= 20] = 0.0
+# Regla biológica: no emergencia antes de JD 15
+emerrel_for_year[dias <= 15] = 0.0
 
 # Normalización 0–1 por máximo (preserva forma relativa)
 if emerrel_for_year.max() > 0:
