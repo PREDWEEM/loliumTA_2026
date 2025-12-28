@@ -77,63 +77,79 @@ def load_models():
         return None, None
 
 # ===============================================================
-# 📂 GESTIÓN DE DATOS (CARGA Y DESCARGA)
+# ⚙️ CONFIGURACIÓN DE UMBRALES (BARRA LATERAL)
 # ===============================================================
 st.sidebar.header("📂 Gestión de Datos")
 uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel o CSV)", type=["xlsx", "csv"])
 
+st.sidebar.divider()
+st.sidebar.header("⚙️ Ajustes de Control")
+
+umbral_rel_input = st.sidebar.slider(
+    "Sensibilidad de detección", 
+    0.05, 0.40, 0.10, 0.01,
+    help="Define el tamaño del pulso de emergencia necesario para iniciar el cronómetro de la Ventana de Acción."
+)
+
+st.sidebar.subheader("Límites de Tiempo Térmico (°Cd)")
+dga_optimo = st.sidebar.slider(
+    "Límite Estado Óptimo", 
+    50, 250, 180, 10,
+    help="DGA máximos para una maleza de 1 a 3 hojas. Absorción de herbicidas máxima."
+)
+
+dga_critico = st.sidebar.slider(
+    "Límite Estado Crítico", 
+    251, 600, 350, 10,
+    help="DGA a partir de los cuales suele iniciar el macollaje, dificultando el control."
+)
+
+# ===============================================================
+# 📊 PROCESAMIENTO DE DATOS
+# ===============================================================
 def get_data(file_input):
     try:
         if file_input is not None:
-            if file_input.name.endswith('.csv'):
-                return pd.read_csv(file_input, parse_dates=["Fecha"])
-            else:
-                return pd.read_excel(file_input, parse_dates=["Fecha"])
+            df = pd.read_csv(file_input, parse_dates=["Fecha"]) if file_input.name.endswith('.csv') else pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
             path_fixed = BASE / "meteo_daily.csv"
             if path_fixed.exists():
-                return pd.read_csv(path_fixed, parse_dates=["Fecha"])
-            return None
+                df = pd.read_csv(path_fixed, parse_dates=["Fecha"])
+            else: return None
+        
+        # Mapeo inteligente de columnas
+        df.columns = [c.upper().strip() for c in df.columns]
+        mapeo = {
+            'FECHA': 'Fecha', 'DATE': 'Fecha',
+            'TMAX': 'TMAX', 'TEMPMAX': 'TMAX', 'TMIN': 'TMIN', 'TEMPMIN': 'TMIN',
+            'PREC': 'Prec', 'LLUVIA': 'Prec', 'PRECIPITACION': 'Prec'
+        }
+        return df.rename(columns=mapeo)
     except Exception as e:
         st.error(f"Error al leer datos: {e}")
         return None
 
-# Carga de modelos e inicio de lógica
 modelo_ann, cluster_model = load_models()
 df = get_data(uploaded_file)
 
 if df is not None and modelo_ann is not None:
     # Limpieza y preparación
     cols_necesarias = ["Fecha", "TMAX", "TMIN", "Prec"]
-    if not all(col in df.columns for col in cols_necesarias):
-        st.error(f"El archivo debe contener las columnas: {cols_necesarias}")
-        st.stop()
-        
     df = df.dropna(subset=cols_necesarias).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
-    # Predicción ANN
+    # Predicción y Días Grado
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
+    
+    T_BASE = 2.0
+    df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - T_BASE, 0)
     df["EMERAC"] = df["EMERREL"].cumsum()
     
-    # Cálculo de Riesgo
     max_er = df["EMERREL"].max()
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
-
-    # BOTÓN DE DESCARGA EN SIDEBAR
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Predicciones')
-    
-    st.sidebar.download_button(
-        label="📥 Descargar Predicciones (Excel)",
-        data=output.getvalue(),
-        file_name="predicciones_lolium_predweem.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
 
     # ===============================================================
     # 🖥️ VISUALIZACIÓN
@@ -145,18 +161,12 @@ if df is not None and modelo_ann is not None:
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale='Viridis', zmin=0, zmax=1,
         hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=200, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=10))
+    fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=0))
     st.plotly_chart(fig_risk, use_container_width=True)
 
     # Clasificación Funcional
     st.divider()
-    st.header("🌾 Análisis Funcional de Patrones")
-
-    UMBRAL_RELEVANCIA = 0.10
-    if max_er < UMBRAL_RELEVANCIA:
-        st.warning(f"⚠️ Pico máximo ({max_er:.3f}) por debajo del umbral de {UMBRAL_RELEVANCIA}. No se asigna patrón funcional.")
-    else:
-        # Lógica DTW
+    if max_er >= umbral_rel_input:
         JD_COMMON = cluster_model["JD_common"]
         curves_interp = cluster_model["curves_interp"]
         meds_idx = cluster_model["medoids_k3"]
@@ -171,26 +181,54 @@ if df is not None and modelo_ann is not None:
         names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
         colors = {0: "blue", 1: "green", 2: "orange"}
         
-        st.markdown(f"### Patrón Asignado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
-
-        c1, c2 = st.columns([2, 1])
+        c1, c2 = st.columns([1, 1.5])
         with c1:
-            fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
-            ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón de Referencia", color=colors[cluster_pred], ls="--")
-            ax.set_title("Ajuste a Patrones Históricos")
-            ax.legend()
-            st.pyplot(fig_cmp)
-        with c2:
+            st.header("🎯 Patrón Detectado")
+            st.markdown(f"<h2 style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</h2>", unsafe_allow_html=True)
             cert = 1 - (min(dists) / sum(dists))
-            st.metric("Certidumbre de Patrón", f"{cert:.1%}")
-            st.info(f"El patrón '{names[cluster_pred]}' es el que mejor describe la forma de emergencia en este lote.")
+            st.metric("Confianza del Ajuste", f"{cert:.1%}")
+        with c2:
+            fig_cmp, ax = plt.subplots(figsize=(7, 3))
+            ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
+            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón Referencia", color=colors[cluster_pred], ls="--")
+            ax.legend(); st.pyplot(fig_cmp)
+
+        # Semáforo de Ventana de Acción
+        st.divider()
+        st.header("🗓️ Ventana de Acción Agronómica")
+        
+
+        df_pulso = df[df["EMERREL"] >= umbral_rel_input]
+        if not df_pulso.empty:
+            fecha_inicio = df_pulso["Fecha"].iloc[0]
+            dga = df[df["Fecha"] >= fecha_inicio]["DG"].cumsum().iloc[-1]
+            
+            v1, v2, v3 = st.columns(3)
+            v1.metric("Inicio del Pulso", fecha_inicio.strftime("%d-%b"))
+            v2.metric("Suma Térmica", f"{dga:.1f} °Cd")
+            
+            if dga <= dga_optimo:
+                v3.success(f"🟢 ÓPTIMO: < {dga_optimo} °Cd")
+                st.info("✅ Maleza en estado de plántula (1-3 hojas). Máxima eficiencia de control.")
+            elif dga <= dga_critico:
+                v3.warning(f"🟡 LÍMITE: {dga_optimo}-{dga_critico} °Cd")
+                st.warning("⚠️ La maleza está ganando tamaño. Priorizar aplicación y ajustar dosis.")
+            else:
+                v3.error(f"🔴 CRÍTICO: > {dga_critico} °Cd")
+                st.error("❗ Riesgo de macollaje. El control químico puede ser deficiente.")
+    else:
+        st.info(f"Pulsos por debajo de la sensibilidad elegida ({umbral_rel_input}).")
+
+    # Descarga
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Predicciones')
+    st.sidebar.download_button("📥 Descargar Excel", output.getvalue(), "predicciones_tres_arroyos.xlsx")
 
     with st.expander("🔍 Ver tabla de datos"):
         st.dataframe(df.style.format(precision=3))
-
 else:
-    st.warning("👈 Por favor, sube un archivo o coloca 'meteo_daily.csv' en la carpeta raíz.")
+    st.warning("👈 Por favor, sube un archivo de clima para comenzar.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Formato: Fecha, TMAX, TMIN, Prec")
+st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
