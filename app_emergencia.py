@@ -87,7 +87,7 @@ st.sidebar.header("⚙️ Ajustes de Control")
 
 umbral_rel_input = st.sidebar.slider(
     "Sensibilidad de detección", 
-    0.05, 0.40, 0.10, 0.01,
+    1.00, 0.50, 0.20, 0.10,
     help="Define el tamaño del pulso de emergencia necesario para iniciar el cronómetro de la Ventana de Acción."
 )
 
