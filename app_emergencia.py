@@ -100,7 +100,7 @@ dga_optimo = st.sidebar.slider(
 
 dga_critico = st.sidebar.slider(
     "Límite Estado Crítico", 
-    251, 600, 350, 10,
+    251, 800, 600, 10,
     help="DGA a partir de los cuales suele iniciar el macollaje, dificultando el control."
 )
 
