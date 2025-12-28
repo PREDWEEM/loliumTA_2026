@@ -100,7 +100,7 @@ dga_optimo = st.sidebar.slider(
 
 dga_critico = st.sidebar.slider(
     "Límite Estado Crítico", 
-    301, 800, 600, 10,
+    500, 1000, 800, 10,
     help="DGA a partir de los cuales se considera riesgo alto de macollaje y fallas de control."
 )
 
@@ -211,13 +211,13 @@ if df is not None and modelo_ann is not None:
         
         if dga <= dga_optimo:
             v3.success(f"🟢 ÓPTIMO: < {dga_optimo} °Cd")
-            st.info("✅ **Diagnóstico:** Emergencia confirmada. Plántula (1-3 hojas). Máxima sensibilidad.")
+            st.info("✅ **Diagnóstico:** Emergencia confirmada. Máxima sensibilidad.")
         elif dga <= dga_critico:
             v3.warning(f"🟡 LÍMITE: {dga_optimo}-{dga_critico} °Cd")
-            st.warning("⚠️ **Diagnóstico:** Crecimiento activo. Priorizar aplicación y ajustar dosis.")
+            st.warning("⚠️ **Diagnóstico:** INICIO MACOLLAJE 3/4 HOJAS")
         else:
             v3.error(f"🔴 CRÍTICO: > {dga_critico} °Cd")
-            st.error("❗ **Alerta:** Riesgo alto de macollaje iniciado. Posibles fallas de control.")
+            st.error("❗ **Alerta:** MACOLLAJE AVANZADO. Posibles fallas de control.")
     else:
         st.info(f"Esperando emergencia sostenida (2 pulsos ≥ {umbral_rel_input} en 5 días) para activar alertas.")
 
