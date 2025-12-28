@@ -87,7 +87,7 @@ st.sidebar.header("⚙️ Ajustes de Control")
 
 umbral_rel_input = st.sidebar.slider(
     "Sensibilidad de detección", 
-    0.05, 0.40, 0.20, 0.05,
+    0.05, 0.80, 0.50, 0.05,
     help="Define el tamaño del pulso de emergencia necesario para considerar un evento de nacimiento."
 )
 
