@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026 (Proyectivo)
 # ===============================================================
 
 import streamlit as st
@@ -10,11 +10,12 @@ import matplotlib.pyplot as plt
 import pickle, io
 from pathlib import Path
 import plotly.graph_objects as go
+from datetime import timedelta
 
 # ---------------------------------------------------------
 # CONFIG STREAMLIT + ESTILO
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – LOLIUM TRES ARROYOS 2026", layout="wide")
+st.set_page_config(page_title="PREDWEEM vK3 – TRES ARROYOS 2026", layout="wide")
 
 st.markdown("""
 <style>
@@ -76,8 +77,22 @@ def load_models():
         st.error(f"Error cargando archivos de modelo: {e}")
         return None, None
 
+def proyectar_fecha(df_v, target_dga, dga_actual):
+    if dga_actual >= target_dga:
+        # Ya ocurrió: buscar fecha exacta
+        return df_v[df_v["DGA_sum"] >= target_dga]["Fecha"].min(), False
+    
+    # Proyectar: usar promedio de DG de los últimos 7 días
+    ultimos_dg = df_v["DG"].tail(7).mean()
+    if ultimos_dg <= 0.2: ultimos_dg = 4.5 # Fallback para días muy fríos
+    
+    faltante = target_dga - dga_actual
+    dias_estimados = int(np.ceil(faltante / ultimos_dg))
+    fecha_proyectada = df_v["Fecha"].max() + timedelta(days=dias_estimados)
+    return fecha_proyectada, True
+
 # ===============================================================
-# ⚙️ CONFIGURACIÓN DE UMBRALES (BARRA LATERAL)
+# ⚙️ CONFIGURACIÓN (SIDEBAR)
 # ===============================================================
 st.sidebar.header("📂 Gestión de Datos")
 uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel o CSV)", type=["xlsx", "csv"])
@@ -85,152 +100,102 @@ uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel o CSV)", type=["xls
 st.sidebar.divider()
 st.sidebar.header("⚙️ Ajustes de Control")
 
-umbral_rel_input = st.sidebar.slider(
-    "Sensibilidad de detección", 
-    0.05, 1.00, 0.50, 0.10,
-    help="Define el tamaño del pulso de emergencia necesario para considerar un evento de nacimiento."
-)
-
-st.sidebar.subheader("Límites de Tiempo Térmico (°Cd)")
-dga_optimo = st.sidebar.slider(
-    "Límite Estado Óptimo", 
-    50, 300, 180, 10,
-    help="DGA máximos para una maleza de 1 a 3 hojas. Absorción de herbicidas máxima."
-)
-
-dga_critico = st.sidebar.slider(
-    "Límite Estado Crítico", 
-    301, 800, 600, 10,
-    help="DGA a partir de los cuales se considera riesgo alto de macollaje y fallas de control."
-)
+umbral_rel_input = st.sidebar.slider("Sensibilidad de detección", 0.05, 1.00, 0.20, 0.05)
+dga_optimo = st.sidebar.slider("Límite Estado Óptimo (°Cd)", 50, 400, 180, 10)
+dga_critico = st.sidebar.slider("Límite Estado Crítico (°Cd)", 401, 1000, 600, 10)
 
 # ===============================================================
-# 📊 PROCESAMIENTO DE DATOS
+# 📊 PROCESAMIENTO
 # ===============================================================
-def get_data(file_input):
-    try:
-        if file_input is not None:
-            df = pd.read_csv(file_input, parse_dates=["Fecha"]) if file_input.name.endswith('.csv') else pd.read_excel(file_input, parse_dates=["Fecha"])
-        else:
-            path_fixed = BASE / "meteo_daily.csv"
-            if path_fixed.exists():
-                df = pd.read_csv(path_fixed, parse_dates=["Fecha"])
-            else: return None
-        
-        df.columns = [c.upper().strip() for c in df.columns]
-        mapeo = {
-            'FECHA': 'Fecha', 'DATE': 'Fecha',
-            'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'
-        }
-        return df.rename(columns=mapeo)
-    except Exception as e:
-        st.error(f"Error al leer datos: {e}"); return None
-
 modelo_ann, cluster_model = load_models()
-df = get_data(uploaded_file)
 
-if df is not None and modelo_ann is not None:
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, parse_dates=["Fecha"]) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, parse_dates=["Fecha"])
+    df.columns = [c.upper().strip() for c in df.columns]
+    mapeo = {'FECHA': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec'}
+    df = df.rename(columns=mapeo)
+    
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
-
+    
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
-    
-    T_BASE = 2.0
-    df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - T_BASE, 0)
-    
-    max_er = df["EMERREL"].max()
-    df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
+    df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0)
+    df["Riesgo"] = df["EMERREL"] / df["EMERREL"].max() if df["EMERREL"].max() > 0 else 0
 
-    # ===============================================================
-    # 🖥️ VISUALIZACIÓN
-    # ===============================================================
-    st.title("🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026")
-    
-    fig_risk = go.Figure(data=go.Heatmap(
-        z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
-        colorscale='Viridis', zmin=0, zmax=1,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=0))
-    st.plotly_chart(fig_risk, use_container_width=True)
+    st.title("🌾 PREDWEEM vK3 — TRES ARROYOS")
 
-    st.divider()
-
-    # --- LÓGICA DE VALIDACIÓN: 2 PULSOS EN 5 DÍAS ---
+    # --- LÓGICA 2 PULSOS / 5 DÍAS ---
     indices_pulso = df.index[df["EMERREL"] >= umbral_rel_input].tolist()
-    fecha_inicio_ventana = None
-    
+    fecha_inicio = None
     for i in range(len(indices_pulso) - 1):
-        idx1 = indices_pulso[i]
-        idx2 = indices_pulso[i+1]
-        if (df.loc[idx2, "Fecha"] - df.loc[idx1, "Fecha"]).days <= 5:
-            fecha_inicio_ventana = df.loc[idx1, "Fecha"]
+        if (df.loc[indices_pulso[i+1], "Fecha"] - df.loc[indices_pulso[i], "Fecha"]).days <= 5:
+            fecha_inicio = df.loc[indices_pulso[i], "Fecha"]
             break
 
-    if fecha_inicio_ventana:
-        # 1. Análisis de Patrón
-        JD_COMMON = cluster_model["JD_common"]
-        curves_interp = cluster_model["curves_interp"]
-        meds_idx = cluster_model["medoids_k3"]
-        
-        emer_norm = df["EMERREL"].to_numpy() / max_er
-        curve_year_interp = np.interp(JD_COMMON, df["Julian_days"], emer_norm)
-        
-        meds = [curves_interp[i] for i in meds_idx]
-        dists = [dtw_distance(curve_year_interp, m) for m in meds]
-        cluster_pred = np.argmin(dists)
+    if fecha_inicio:
+        df_v = df[df["Fecha"] >= fecha_inicio].copy()
+        df_v["DGA_sum"] = df_v["DG"].cumsum()
+        dga_act = df_v["DGA_sum"].iloc[-1]
 
-        names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
-        colors = {0: "blue", 1: "green", 2: "orange"}
-        
-        c1, c2 = st.columns([1, 1.5])
-        with c1:
-            st.header("🎯 Patrón Detectado")
-            st.markdown(f"<h2 style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</h2>", unsafe_allow_html=True)
-            cert = 1 - (min(dists) / sum(dists))
-            st.metric("Confianza", f"{cert:.1%}")
-        with c2:
-            fig_cmp, ax = plt.subplots(figsize=(7, 3))
-            ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Referencia", color=colors[cluster_pred], ls="--")
-            ax.legend(); st.pyplot(fig_cmp)
+        # Fechas Hito
+        f_opt, proy_opt = proyectar_fecha(df_v, dga_optimo, dga_act)
+        f_crit, proy_crit = proyectar_fecha(df_v, dga_critico, dga_act)
 
-        # 2. Ventana de Acción
+        # --- DASHBOARD DE ESTADO ---
         st.divider()
-        st.header("🗓️ Ventana de Acción Agronómica")
+        st.header("⏱️ Ventana de Acción Agronómica")
         
-        
-        
-        dga = df[df["Fecha"] >= fecha_inicio_ventana]["DG"].cumsum().iloc[-1]
-        
-        v1, v2, v3 = st.columns(3)
-        v1.metric("Inicio (Confirmado)", fecha_inicio_ventana.strftime("%d-%b"))
-        v2.metric("Suma Térmica", f"{dga:.1f} °Cd")
-        
-        if dga <= dga_optimo:
-            v3.success(f"🟢 ÓPTIMO: < {dga_optimo} °Cd")
-            st.info("✅ **Diagnóstico:** Emergencia confirmada. Plántula (1-3 hojas). Máxima sensibilidad.")
-        elif dga <= dga_critico:
-            v3.warning(f"🟡 LÍMITE: {dga_optimo}-{dga_critico} °Cd")
-            st.warning("⚠️ **Diagnóstico:** Crecimiento activo. Priorizar aplicación y ajustar dosis.")
-        else:
-            v3.error(f"🔴 CRÍTICO: > {dga_critico} °Cd")
-            st.error("❗ **Alerta:** Riesgo alto de macollaje iniciado. Posibles fallas de control.")
-    else:
-        st.info(f"Esperando emergencia sostenida (2 pulsos ≥ {umbral_rel_input} en 5 días) para activar alertas.")
+        col_gauge, col_dates = st.columns([1, 1])
 
-    # Descarga
+        with col_gauge:
+            fig_g = go.Figure(go.Indicator(
+                mode = "gauge+number", value = dga_act,
+                title = {'text': "DGA Acumulados (°Cd)", 'font': {'size': 20}},
+                gauge = {
+                    'axis': {'range': [0, dga_critico + 150]},
+                    'bar': {'color': "#2c3e50"},
+                    'steps': [
+                        {'range': [0, dga_optimo], 'color': "#2ecc71"},
+                        {'range': [dga_optimo, dga_critico], 'color': "#f1c40f"},
+                        {'range': [dga_critico, dga_critico + 150], 'color': "#e74c3c"}]}))
+            fig_g.update_layout(height=350, margin=dict(t=50, b=0))
+            st.plotly_chart(fig_g, use_container_width=True)
+
+        with col_dates:
+            st.markdown(f"**Inicio Emergencia Sostenida:** {fecha_inicio.strftime('%d-%b-%Y')}")
+            
+            def label(proy): return "📅 Estimado" if proy else "✅ Alcanzado"
+            
+            st.info(f"### 🟢 Límite Óptimo\n**{f_opt.strftime('%d-%b')}** \n*{label(proy_opt)}*")
+            st.error(f"### 🔴 Límite Crítico\n**{f_crit.strftime('%d-%b')}** \n*{label(proy_crit)}*")
+
+            if dga_act > dga_critico:
+                st.error("❗ **ALERTA:** Maleza en macollaje. Control difícil.")
+            elif dga_act > dga_optimo:
+                st.warning("⚠️ **AVISO:** Ventana óptima cerrada. Aumentar dosis/vigilancia.")
+            else:
+                st.success("✨ **ESTADO ÓPTIMO:** Máxima sensibilidad a herbicidas.")
+
+        st.divider()
+        st.subheader("📈 Progresión del Desarrollo")
+        
+        fig_line = go.Figure()
+        fig_line.add_trace(go.Scatter(x=df_v["Fecha"], y=df_v["DGA_sum"], name="DGA Real", line=dict(color='black', width=3)))
+        fig_line.add_hline(y=dga_optimo, line_dash="dot", line_color="green", annotation_text="Límite 1-3 Hojas")
+        fig_line.add_hline(y=dga_critico, line_dash="dot", line_color="red", annotation_text="Inicio Macollaje")
+        st.plotly_chart(fig_line, use_container_width=True)
+
+    else:
+        st.warning("🔎 No se detecta emergencia sostenida aún (2 pulsos ≥ umbral en 5 días).")
+
+    # Botón de Descarga
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Predicciones')
-    st.sidebar.download_button("📥 Descargar Excel", output.getvalue(), "reporte_tres_arroyos.xlsx")
+        df.to_excel(writer, index=False, sheet_name='Analisis')
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "reporte_lolium.xlsx")
 
-    with st.expander("🔍 Ver tabla de datos"):
-        st.dataframe(df.style.format(precision=3))
 else:
-    st.warning("👈 Por favor, sube un archivo de clima para comenzar.")
-
-st.sidebar.markdown("---")
-st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
+    st.info("👈 Por favor, cargue un archivo de clima para activar el sistema.")
