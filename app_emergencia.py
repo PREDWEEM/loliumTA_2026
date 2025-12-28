@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026
 # ===============================================================
 
 import streamlit as st
@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 # ---------------------------------------------------------
 # CONFIG STREAMLIT + ESTILO
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – LOLIUM BORDENAVE 2026", layout="wide")
+st.set_page_config(page_title="PREDWEEM vK3 – LOLIUM TRES ARROYOS 2026", layout="wide")
 
 st.markdown("""
 <style>
@@ -138,7 +138,7 @@ if df is not None and modelo_ann is not None:
     # ===============================================================
     # 🖥️ VISUALIZACIÓN
     # ===============================================================
-    st.title("🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026")
+    st.title("🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026")
     
     # Mapa de Riesgo
     fig_risk = go.Figure(data=go.Heatmap(
