@@ -207,7 +207,7 @@ if df is not None and modelo_ann is not None:
 
         st.table(pd.DataFrame({
             "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
-            "Fenología": ["1-3 hojas (Sin macollos)", "Inicio Macollaje", "Macollaje Avanzado"],
+            "Fenología": ["EMERGENCIA-PREMACOLLAJE", "MACOLLAJE", "MACOLLAJE AVANZADO"],
             "Fecha Límite": [f_opt.strftime("%d-%m-%Y"), f_cri.strftime("%d-%m-%Y"), "Control Comprometido"],
             "Estado": [s_opt, s_cri, "ALTA RESISTENCIA"]
         }))
