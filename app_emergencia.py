@@ -7,7 +7,7 @@ import pickle, io
 from pathlib import Path
 
 # ---------------------------------------------------------
-# 1. CONFIGURACIÓN Y ESTILO (VERDE CLARO Y SEMÁFORO)
+# 1. CONFIGURACIÓN Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
 
@@ -27,6 +27,12 @@ st.markdown("""
         padding: 15px; 
         border-radius: 10px; 
         border: 1px solid #e2e8f0;
+    }
+    /* Estilo para centrar el logo superior */
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -83,7 +89,7 @@ def load_models():
         return None, None
 
 # ---------------------------------------------------------
-# 3. GESTIÓN DE DATOS (LECTURA AUTOMÁTICA GITHUB)
+# 3. GESTIÓN DE DATOS
 # ---------------------------------------------------------
 def get_data(file_input):
     df = None
@@ -107,11 +113,20 @@ def get_data(file_input):
 # 4. INTERFAZ Y PROCESAMIENTO
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
-df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
+
+# --- LOGO SUPERIOR ---
+logo_path = BASE / "logo.png"
+if logo_path.exists():
+    # Usamos columnas para centrar la imagen
+    col_l, col_m, col_r = st.columns([1, 2, 1])
+    with col_m:
+        st.image(str(logo_path), use_container_width=True)
 
 # SIDEBAR: IDENTIDAD Y AJUSTES
 st.sidebar.markdown("## 🌾 PREDWEEM")
 st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
+df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
+
 if st.sidebar.button("🔄 Actualizar Datos"): st.rerun()
 
 st.sidebar.divider()
@@ -127,7 +142,7 @@ if df is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0 # Filtro ruido
+    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     
     df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0) 
     max_er = df["EMERREL"].max()
@@ -137,17 +152,16 @@ if df is not None and modelo_ann is not None:
     st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
     st.caption("Sistema de predicción de emergencia y ventana de acción agronómica.")
 
-    # 1. VISUALIZACIÓN DE RIESGO (SEMAFORO)
+    # 1. VISUALIZACIÓN DE RIESGO
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
-        zmin=0, zmax=1,
-        showscale=False,
+        zmin=0, zmax=1, showscale=False,
         hovertemplate="<b>%{x|%d-%b}</b><br>Intensidad: %{z:.2f}<extra></extra>"))
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # 2. GRÁFICO DE PULSOS (EMERREL)
+    # 2. GRÁFICO DE PULSOS
     fig_emer = go.Figure()
     fig_emer.add_trace(go.Scatter(
         x=df["Fecha"], y=df["EMERREL"], 
@@ -185,13 +199,12 @@ if df is not None and modelo_ann is not None:
         f_opt, s_opt = calc_limite(dga_optimo)
         f_cri, s_cri = calc_limite(dga_critico)
 
-        # Métricas
+        # Métricas y Tabla
         c1, c2, c3 = st.columns(3)
         c1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
         c2.metric("Suma Térmica", f"{dga_actual:.1f} °Cd")
         c3.metric("Fecha Límite Óptima", f_opt.strftime("%d-%b"))
 
-        # Tabla de Niveles
         st.table(pd.DataFrame({
             "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
             "Fenología": ["1-3 hojas (Sin macollos)", "Inicio Macollaje", "Macollaje Avanzado"],
@@ -200,20 +213,20 @@ if df is not None and modelo_ann is not None:
         }))
 
         if dga_actual <= dga_optimo:
-            st.success(f"✅ **VENTANA ÓPTIMA:** Aplicar antes del **{f_opt.strftime('%d-%m-%Y')}** para máxima eficacia.")
+            st.success(f"✅ **VENTANA ÓPTIMA:** Aplicar antes del **{f_opt.strftime('%d-%m-%Y')}**.")
         elif dga_actual <= dga_critico:
-            st.warning(f"⚠️ **ESTADO LÍMITE:** Ventana óptima cerrada el {f_opt.strftime('%d-%m-%Y')}. Límite crítico: **{f_cri.strftime('%d-%m-%Y')}**.")
+            st.warning(f"⚠️ **ESTADO LÍMITE:** Límite crítico: **{f_cri.strftime('%d-%m-%Y')}**.")
         else:
-            st.error(f"❗ **ESTADO CRÍTICO:** Superado el límite el {f_cri.strftime('%d-%m-%Y')}. Se esperan fallas de control.")
+            st.error(f"❗ **ESTADO CRÍTICO:** Se superó el límite el {f_cri.strftime('%d-%m-%Y')}.")
 
     else:
-        st.info(f"⏳ Monitoreando... Se activará el cronograma al detectar 2 pulsos cercanos ≥ {umbral_er}.")
+        st.info(f"⏳ Monitoreando... Se activará el cronograma al detectar pulsos cercanos ≥ {umbral_er}.")
 
     # Descarga
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='PREDWEEM_2026')
-    st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026_TRES_ARROYOS.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026.xlsx")
 
 else:
     st.warning("⚠️ Esperando datos de meteo_daily.csv o subida manual.")
