@@ -94,42 +94,40 @@ modelo_ann = load_models()
 # SIDEBAR
 st.sidebar.markdown("## 🌾 PREDWEEM")
 st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
-df_raw = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
+df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
 
 st.sidebar.divider()
 umbral_er = st.sidebar.slider("Sensibilidad de Detección", 0.05, 0.80, 0.45)
 dga_optimo = st.sidebar.slider("Umbral Óptimo (°Cd)", 50, 800, 600)
 dga_critico = st.sidebar.slider("Umbral Crítico (°Cd)", 600, 1200, 850)
 
-if df_raw is not None and modelo_ann is not None:
-    # 1. Limpieza y Fecha Límite de Registro
-    df = df_raw.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
-    ultima_fecha_registro = df["Fecha"].max()
-    
-    # 2. Cálculos Técnicos
+if df is not None and modelo_ann is not None:
+    # Cálculos Técnicos
+    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
+    
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
-    
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     
+    # Grados Día (Base 2.0°C)
     df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0) 
     max_er = df["EMERREL"].max()
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
 
     st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
-    st.info(f"📅 Datos visualizados hasta el último registro: **{ultima_fecha_registro.strftime('%d-%m-%Y')}**")
 
-    # --- 1. MAPA DE CALOR (Limitado a registro) ---
+    # --- 1. MAPA DE CALOR (RIESGO) ---
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
-        zmin=0, zmax=1, showscale=False))
+        zmin=0, zmax=1, showscale=False,
+        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # --- 2. GRÁFICO DE EMERGENCIA (Limitado a registro) ---
+    # --- 2. GRÁFICO DE EMERGENCIA RELATIVA DIARIA ---
     fig_emer = go.Figure()
     fig_emer.add_trace(go.Scatter(
         x=df["Fecha"], y=df["EMERREL"], 
@@ -138,8 +136,8 @@ if df_raw is not None and modelo_ann is not None:
         fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
     ))
     fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", 
-                       annotation_text="Umbral de Alerta")
-    fig_emer.update_layout(title="Dinámica de Emergencia Relativa Diaria", height=300)
+                       annotation_text="Umbral de Alerta", annotation_position="top right")
+    fig_emer.update_layout(title="Dinámica de Emergencia Relativa Diaria", height=300, margin=dict(t=40, b=40))
     st.plotly_chart(fig_emer, use_container_width=True)
 
     # --- 3. CRONOGRAMA Y VENTANA DE ACCIÓN ---
@@ -159,37 +157,49 @@ if df_raw is not None and modelo_ann is not None:
         df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
         dga_actual = df_ventana["DGA_cum"].iloc[-1]
 
-        # REGLA: Si no se acumuló el tiempo térmico requerido, "Sin dato"
+        # REGLA: La estimación solo se realiza si se acumuló el tiempo térmico
         def calc_limite_estricto(objetivo):
-            # Solo buscamos dentro de la ventana de datos reales acumulados
-            cumplimiento = df_ventana[df_ventana["DGA_cum"] >= objetivo]
-            if not cumplimiento.empty:
-                fecha_fase = cumplimiento["Fecha"].iloc[0]
-                return fecha_fase.strftime("%d-%m-%Y"), "CUMPLIDO"
+            if dga_actual >= objetivo:
+                fecha_fase = df_ventana[df_ventana["DGA_cum"] >= objetivo]["Fecha"].iloc[0]
+                return fecha_fase.strftime("%d-%m-%Y"), "PASADO"
             else:
                 return "Sin dato", "PENDIENTE"
 
         f_opt, s_opt = calc_limite_estricto(dga_optimo)
         f_cri, s_cri = calc_limite_estricto(dga_critico)
 
+        # Métricas principales
         c1, c2, c3 = st.columns(3)
         c1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
-        c2.metric("Suma Térmica Real", f"{dga_actual:.1f} °Cd")
-        c3.metric("Fecha Límite Óptima", f_opt if f_opt != "Sin dato" else "Sin dato")
+        c2.metric("Suma Térmica", f"{dga_actual:.1f} °Cd")
+        c3.metric("Fecha Límite Óptima", f_opt if f_opt != "Sin dato" else "---")
 
         st.table(pd.DataFrame({
             "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
-            "Estatus Térmico": [s_opt, s_cri, "TOLERANTE"],
-            "Fecha Límite (Datos Reales)": [f_opt, f_cri, "Control Comprometido"]
+            "Fenología": ["EMERGENCIA-PREMACOLLAJE", "MACOLLAJE", "MACOLLAJE AVANZADO"],
+            "Fecha Límite": [f_opt, f_cri, "Control Comprometido"],
+            "Estatus Requisito": [s_opt, s_cri, "TOLERANTE"]
         }))
-    else:
-        st.info("⏳ Monitoreando... No se han detectado pulsos de emergencia en el registro actual.")
 
-    # Descarga
+        # Mensajes de advertencia
+        if f_opt == "Sin dato":
+            st.info(f"⏳ Esperando acumulación de tiempo térmico para definir fecha límite (Umbral: {dga_optimo} °Cd).")
+        elif dga_actual <= dga_optimo:
+            st.success(f"✅ **VENTANA ÓPTIMA:** El límite térmico se alcanzó el {f_opt}.")
+        elif dga_actual <= dga_critico:
+            st.warning(f"⚠️ **ESTADO LÍMITE:** Se superó el óptimo el {f_opt}. Límite crítico: {f_cri}.")
+        else:
+            st.error(f"❗ **ESTADO CRÍTICO:** Se superó el límite crítico el {f_cri}.")
+    else:
+        st.info(f"⏳ Monitoreando... Se activará el cronograma al detectar pulsos cercanos ≥ {umbral_er}.")
+
+    # Botón de descarga en sidebar
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='PREDWEEM_2026')
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "predweem_2026.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026.xlsx")
 
 else:
-    st.warning("⚠️ Cargue el archivo climático para visualizar la simulación.")
+    st.warning("⚠️ Esperando datos para procesar la simulación.")
+
+st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
