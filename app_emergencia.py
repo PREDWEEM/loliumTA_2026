@@ -209,7 +209,7 @@ if df is not None and modelo_ann is not None:
             "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
             "Fenología": ["EMERGENCIA-PREMACOLLAJE", "MACOLLAJE", "MACOLLAJE AVANZADO"],
             "Fecha Límite": [f_opt.strftime("%d-%m-%Y"), f_cri.strftime("%d-%m-%Y"), "Control Comprometido"],
-            "Estado": [s_opt, s_cri, "ALTA RESISTENCIA"]
+            "Estado": [s_opt, s_cri, "TOLERANTE"]
         }))
 
         if dga_actual <= dga_optimo:
