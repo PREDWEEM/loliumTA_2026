@@ -97,7 +97,7 @@ st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
 df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
 
 st.sidebar.divider()
-umbral_er = st.sidebar.slider("Sensibilidad de Detección", 0.05, 0.80, 0.45)
+umbral_er = st.sidebar.slider("Sensibilidad de Detección (Umbral)", 0.05, 0.80, 0.45)
 dga_optimo = st.sidebar.slider("Umbral Óptimo (°Cd)", 50, 800, 600)
 dga_critico = st.sidebar.slider("Umbral Crítico (°Cd)", 600, 1200, 850)
 
@@ -117,21 +117,38 @@ if df is not None and modelo_ann is not None:
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
 
     st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
-    st.caption("Validación de ventanas de control basada en acumulación de tiempo térmico.")
 
-    # 1. VISUALIZACIÓN DE RIESGO
+    # --- 1. MAPA DE CALOR (RIESGO) ---
     fig_risk = go.Figure(data=go.Heatmap(
-        z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
+        z=[df["Riesgo"].values], x=df["Fecha"], y=["Intensidad"],
         colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
         zmin=0, zmax=1, showscale=False))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Emergencia")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # 2. VENTANA DE ACCIÓN (LÓGICA PEDIDA)
+    # --- 2. GRÁFICO DE EMERGENCIA RELATIVA DIARIA ---
+    fig_emer = go.Figure()
+    fig_emer.add_trace(go.Scatter(
+        x=df["Fecha"], y=df["EMERREL"], 
+        mode='lines', name='Emergencia Relativa',
+        line=dict(color='#166534', width=2),
+        fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
+    ))
+    fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", 
+                       annotation_text="Umbral de Alerta", annotation_position="top right")
+    fig_emer.update_layout(
+        title="Dinámica de Emergencia Relativa Diaria",
+        xaxis_title="Fecha",
+        yaxis_title="Emergencia (Relativa)",
+        height=350,
+        margin=dict(t=50, b=50)
+    )
+    st.plotly_chart(fig_emer, use_container_width=True)
+
+    # --- 3. VENTANA DE ACCIÓN ---
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
     fecha_inicio_ventana = None
     
-    # Detectar inicio de ventana por pulsos sostenidos
     for i in range(len(indices_pulso) - 1):
         if (df.loc[indices_pulso[i+1], "Fecha"] - df.loc[indices_pulso[i], "Fecha"]).days <= 5:
             fecha_inicio_ventana = df.loc[indices_pulso[i], "Fecha"]
@@ -139,13 +156,13 @@ if df is not None and modelo_ann is not None:
 
     if fecha_inicio_ventana:
         st.divider()
-        st.header("🗓️ Cronograma y Fechas Límite")
+        st.header("🗓️ Cronograma y Fechas Límite de Acción")
         
         df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
         dga_actual = df_ventana["DGA_cum"].iloc[-1]
 
-        # REGLA: Solo estimar si se acumuló el tiempo térmico requerido
+        # REGLA SOLICITADA: Si no se acumuló el tiempo térmico, "Sin dato"
         def calc_limite_estricto(objetivo):
             if dga_actual >= objetivo:
                 fecha_alcanzada = df_ventana[df_ventana["DGA_cum"] >= objetivo]["Fecha"].iloc[0]
@@ -156,37 +173,26 @@ if df is not None and modelo_ann is not None:
         f_opt, s_opt = calc_limite_estricto(dga_optimo)
         f_cri, s_cri = calc_limite_estricto(dga_critico)
 
-        # Métricas principales
+        # Métricas
         c1, c2, c3 = st.columns(3)
-        c1.metric("Inicio de Ventana", fecha_inicio_ventana.strftime("%d-%b"))
+        c1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
         c2.metric("Acumulado Térmico", f"{dga_actual:.1f} °Cd")
-        c3.metric("Límite Óptimo", f_opt if f_opt != "Sin dato" else "---")
+        c3.metric("Fecha Límite Óptima", f_opt if f_opt != "Sin dato" else "---")
 
-        # Tabla de Seguimiento
-        df_tabla = pd.DataFrame({
+        st.table(pd.DataFrame({
             "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
-            "Estado Fenológico": ["EMERGENCIA / PRE-MACOLLAJE", "MACOLLAJE INICIAL", "MACOLLAJE AVANZADO"],
-            "Fecha Límite (Térmica)": [f_opt, f_cri, "Control No Recomendado"],
-            "Estatus Requisito": [s_opt, s_cri, "N/A"]
-        })
-        st.table(df_tabla)
-
-        # Alertas dinámicas
-        if f_opt == "Sin dato":
-            st.info(f"💡 El sistema está esperando a que se acumulen {dga_optimo} °Cd para fijar la fecha límite óptima.")
-        elif dga_actual <= dga_critico:
-            st.warning(f"⚠️ Atención: Se ha superado el tiempo térmico óptimo ({f_opt}). Ventana de control cerrándose.")
-        else:
-            st.error(f"❗ Alerta: Se ha superado el tiempo térmico crítico ({f_cri}). El control puede ser ineficiente.")
-
+            "Fenología Estimada": ["EMERGENCIA-PREMACOLLAJE", "MACOLLAJE", "MACOLLAJE AVANZADO"],
+            "Fecha Límite": [f_opt, f_cri, "Control Comprometido"],
+            "Estado del Requisito": [s_opt, s_cri, "TOLERANTE"]
+        }))
     else:
-        st.info(f"⏳ Monitoreando... No se ha detectado un pulso de emergencia suficiente (Umbral: {umbral_er}) para iniciar el cronograma.")
+        st.info(f"⏳ Monitoreando... Se activará el cronograma al detectar pulsos cercanos ≥ {umbral_er}.")
 
-    # Descarga de Datos
+    # Descarga
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='PREDWEEM_DATA')
-    st.sidebar.download_button("📥 Descargar Datos Procesados", output.getvalue(), "predweem_report.xlsx")
+        df.to_excel(writer, index=False, sheet_name='PREDWEEM_2026')
+    st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026.xlsx")
 
 else:
-    st.warning("⚠️ Cargue un archivo de clima o asegúrese de que 'meteo_daily.csv' esté en la carpeta raíz.")
+    st.warning("⚠️ Esperando datos de meteo_daily.csv o subida manual.")
