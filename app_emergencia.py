@@ -94,13 +94,13 @@ umbral_rel_input = st.sidebar.slider(
 st.sidebar.subheader("Límites de Tiempo Térmico (°Cd)")
 dga_optimo = st.sidebar.slider(
     "Límite Estado Óptimo", 
-    50, 300, 180, 10,
+    50, 800, 600, 10,
     help="DGA máximos para una maleza de 1 a 3 hojas. Absorción de herbicidas máxima."
 )
 
 dga_critico = st.sidebar.slider(
     "Límite Estado Crítico", 
-    500, 1000, 800, 10,
+    600, 1000, 800, 10,
     help="DGA a partir de los cuales se considera riesgo alto de macollaje y fallas de control."
 )
 
@@ -214,7 +214,7 @@ if df is not None and modelo_ann is not None:
             st.info("✅ **Diagnóstico:** Emergencia confirmada. Máxima sensibilidad.")
         elif dga <= dga_critico:
             v3.warning(f"🟡 LÍMITE: {dga_optimo}-{dga_critico} °Cd")
-            st.warning("⚠️ **Diagnóstico:** INICIO MACOLLAJE 3/4 HOJAS")
+            st.warning("⚠️ **Diagnóstico:** MACOLLAJE 3/4 HOJAS")
         else:
             v3.error(f"🔴 CRÍTICO: > {dga_critico} °Cd")
             st.error("❗ **Alerta:** MACOLLAJE AVANZADO. Posibles fallas de control.")
