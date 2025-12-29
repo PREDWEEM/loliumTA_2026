@@ -114,7 +114,7 @@ st.sidebar.title("🌿 PREDWEEM vK3")
 if st.sidebar.button("🔄 Actualizar App"): st.rerun()
 st.sidebar.divider()
 umbral_er = st.sidebar.slider("Sensibilidad Detección (Umbral)", 0.05, 0.80, 0.45)
-dga_optimo = st.sidebar.slider("Límite Óptimo (°Cd)", 50, 800, 600)
+dga_optimo = st.sidebar.slider("Límite Óptimo (°Cd)", 50, 800, 650)
 dga_critico = st.sidebar.slider("Límite Crítico (°Cd)", 600, 1200, 850)
 
 if df is not None and modelo_ann is not None:
