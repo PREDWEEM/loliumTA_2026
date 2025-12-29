@@ -72,29 +72,45 @@ def load_models():
         return None, None
 
 # ---------------------------------------------------------
-# GESTIÓN DE DATOS
+# GESTIÓN DE DATOS (GitHub Auto-update)
 # ---------------------------------------------------------
 def get_data(file_input):
+    """Carga datos del archivo subido o, por defecto, del repositorio local."""
+    df = None
     try:
         if file_input is not None:
+            # Opción 1: Archivo subido por el usuario
             df = pd.read_csv(file_input, parse_dates=["Fecha"]) if file_input.name.endswith('.csv') else pd.read_excel(file_input, parse_dates=["Fecha"])
+            st.sidebar.success("Usando archivo subido manualmente.")
         else:
-            return None
+            # Opción 2: Archivo automático en la carpeta de GitHub
+            path_fixed = BASE / "meteo_daily.csv"
+            if path_fixed.exists():
+                df = pd.read_csv(path_fixed, parse_dates=["Fecha"])
+                st.sidebar.info("Cargando datos automáticos desde GitHub (meteo_daily.csv)")
+            else:
+                return None
         
+        # Estandarización de columnas
         df.columns = [c.upper().strip() for c in df.columns]
-        mapeo = {'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'}
-        return df.rename(columns=mapeo)
+        mapeo = {
+            'FECHA': 'Fecha', 'DATE': 'Fecha', 
+            'TMAX': 'TMAX', 'TMIN': 'TMIN', 
+            'PREC': 'Prec', 'LLUVIA': 'Prec'
+        }
+        df = df.rename(columns=mapeo)
+        return df
     except Exception as e:
-        st.error(f"Error al leer datos: {e}"); return None
+        st.error(f"Error al procesar datos: {e}")
+        return None
 
 # ---------------------------------------------------------
 # INTERFAZ LATERAL
 # ---------------------------------------------------------
 st.sidebar.title("🌾 PREDWEEM vK3")
-uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel/CSV)", type=["xlsx", "csv"])
+uploaded_file = st.sidebar.file_uploader("Subir Clima alternativo (Excel/CSV)", type=["xlsx", "csv"])
 
-if st.sidebar.button("🔄 Forzar Actualización"):
-    st.cache_resource.clear()
+if st.sidebar.button("🔄 Actualizar Datos Ahora"):
     st.rerun()
 
 st.sidebar.divider()
@@ -109,7 +125,7 @@ modelo_ann, cluster_model = load_models()
 df = get_data(uploaded_file)
 
 if df is not None and modelo_ann is not None:
-    # Preparación de datos
+    # Limpieza básica
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
@@ -117,7 +133,7 @@ if df is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
+    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0 # Filtro ruido enero
     
     # Cálculo Térmico (Base 2.0°C)
     T_BASE = 2.0
@@ -127,7 +143,7 @@ if df is not None and modelo_ann is not None:
 
     st.title("🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026")
 
-    # Gráfico de Riesgo
+    # Mapa de Calor de Riesgo
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale='YlOrRd', zmin=0, zmax=1,
@@ -135,7 +151,7 @@ if df is not None and modelo_ann is not None:
     fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=0))
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # Lógica de Ventana: 2 pulsos en 5 días
+    # Detección de Pulso: 2 eventos en 5 días
     indices_pulso = df.index[df["EMERREL"] >= umbral_rel_input].tolist()
     fecha_inicio_ventana = None
     for i in range(len(indices_pulso) - 1):
@@ -147,7 +163,7 @@ if df is not None and modelo_ann is not None:
     if fecha_inicio_ventana:
         st.divider()
         
-        # 1. Clasificación de Patrón
+        # 1. Comparativa de Patrones (Clustering)
         JD_COMMON = cluster_model["JD_common"]
         curves_interp = cluster_model["curves_interp"]
         meds_idx = cluster_model["medoids_k3"]
@@ -169,62 +185,63 @@ if df is not None and modelo_ann is not None:
         with c2:
             fig_cmp, ax = plt.subplots(figsize=(7, 3), facecolor='#f5f7f9')
             ax.plot(JD_COMMON, curve_year_interp, label="Año Actual", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón Ref.", color=colors[cluster_pred], ls="--")
-            ax.set_title("Comparativa de Curva"); ax.legend(); st.pyplot(fig_cmp)
+            ax.plot(JD_COMMON, meds[cluster_pred], label="Referencia", color=colors[cluster_pred], ls="--")
+            ax.legend(); st.pyplot(fig_cmp)
 
-        # 2. Ventana de Acción y Proyección
-        st.subheader("🗓️ Cronograma y Proyección de Ventana de Acción")
+        # 2. Ventana de Acción y Proyección de Fechas
+        st.divider()
+        st.subheader("🗓️ Proyección de la Ventana de Acción")
         
         mask_v = df["Fecha"] >= fecha_inicio_ventana
         dga_actual = df[mask_v]["DG"].sum()
+        
+        # Tasa de avance: promedio térmico últimos 7 días
         tasa_diaria = df["DG"].tail(7).mean()
-        if tasa_diaria < 1.0: tasa_diaria = 5.0 # Salvaguarda para invierno
+        if tasa_diaria < 1.0: tasa_diaria = 5.5 # Valor defensivo para días fríos
 
         def estimar_fecha(objetivo):
             faltante = objetivo - dga_actual
             if faltante <= 0: return "ALCANZADO"
-            dias = faltante / tasa_diaria
-            return df["Fecha"].max() + pd.Timedelta(days=int(dias))
+            dias_extra = int(faltante / tasa_diaria)
+            return df["Fecha"].max() + pd.Timedelta(days=dias_extra)
 
         f_optima = estimar_fecha(dga_optimo)
         f_critica = estimar_fecha(dga_critico)
 
         v1, v2, v3 = st.columns(3)
-        v1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
-        v2.metric("Acumulación Actual", f"{dga_actual:.1f} °Cd")
-        v3.metric("Proyección Diaria", f"{tasa_diaria:.1f} °Cd/día")
+        v1.metric("Inicio Emergencia", fecha_inicio_ventana.strftime("%d-%b"))
+        v2.metric("Térmico Acumulado", f"{dga_actual:.1f} °Cd")
+        v3.metric("Velocidad Est.", f"{tasa_diaria:.1f} °Cd/día")
 
-        # Tabla de Proyección
+        # Tabla Resumen
         def fmt(f): return f.strftime("%d-%m-%Y") if isinstance(f, pd.Timestamp) else f
         
-        tabla_data = {
-            "Nivel": ["🟢 Óptimo", "🟡 Límite", "🔴 Crítico"],
-            "Descripción": ["Máxima Eficacia (1-3 hojas)", "Macollaje Inicial", "Fallas de Control"],
-            "Umbral DGA": [f"< {dga_optimo}", f"{dga_optimo} - {dga_critico}", f"> {dga_critico}"],
-            "Fecha Límite Est.": [fmt(f_optima), fmt(f_critica), "Superado"]
+        resumen_data = {
+            "Nivel": ["🟢 Óptimo", "🟡 Límite Crítico", "🔴 Post-Crítico"],
+            "Fenología": ["1-3 hojas (Sin macollo)", "Inicio de Macollaje", "Macollaje Avanzado"],
+            "Umbral (°Cd)": [f"Hasta {dga_optimo}", f"{dga_optimo} a {dga_critico}", f"Más de {dga_critico}"],
+            "Fecha Estimada": [fmt(f_optima), fmt(f_critica), "Fuera de Ventana"]
         }
-        st.table(pd.DataFrame(tabla_data))
+        st.table(pd.DataFrame(resumen_data))
 
+        # Alertas de Estado
         if dga_actual <= dga_optimo:
-            st.success(f"✅ **DENTRO DE VENTANA ÓPTIMA:** Se recomienda aplicar antes del **{fmt(f_optima)}**.")
+            st.success(f"✅ **ESTADO ÓPTIMO:** Tienes tiempo hasta el **{fmt(f_optima)}** para aplicar.")
         elif dga_actual <= dga_critico:
-            st.warning(f"⚠️ **ESTADO LÍMITE:** Lolium en macollaje. La ventana crítica inicia el **{fmt(f_critica)}**.")
+            st.warning(f"⚠️ **ESTADO LÍMITE:** El Lolium está iniciando macollaje. Fecha crítica: **{fmt(f_critica)}**.")
         else:
-            st.error(f"❗ **ESTADO CRÍTICO:** Se han superado los {dga_critico} °Cd. Control biológico muy difícil.")
+            st.error(f"❗ **ESTADO CRÍTICO:** Se superaron los {dga_critico} °Cd. Alta probabilidad de fallas de control.")
 
     else:
-        st.info(f"Detección en curso: Esperando 2 pulsos significativos (≥ {umbral_rel_input}) en un rango de 5 días.")
+        st.info(f"Detección: Esperando 2 pulsos significativos (≥ {umbral_rel_input}) en 5 días para fijar inicio.")
 
-    # Descargas
+    # Descarga de Reporte
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Predicciones')
-    st.sidebar.download_button("📥 Descargar Reporte Excel", output.getvalue(), "reporte_predweem_2026.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte .xlsx", output.getvalue(), "predweem_reporte.xlsx")
 
 else:
-    st.info("👈 Por favor, sube un archivo de clima para activar el modelo.")
-    st.markdown("""
-    **Formato requerido del archivo:**
-    - Una columna llamada **Fecha** (DD/MM/AAAA)
-    - Columnas: **TMAX**, **TMIN**, **PREC**
-    """)
+    st.warning("⚠️ No se encontró 'meteo_daily.csv' ni se subió un archivo. Por favor, verifica tu repositorio.")
+
+st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
