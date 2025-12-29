@@ -7,7 +7,7 @@ import pickle, io
 from pathlib import Path
 
 # ---------------------------------------------------------
-# 1. CONFIGURACIÓN Y ESTILO (VERDE CLARO Y SEMÁFORO)
+# 1. CONFIGURACIÓN Y ESTILO (VERDE CLARO)
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
 
@@ -82,9 +82,6 @@ def load_models():
         st.error(f"Error cargando archivos de modelo: {e}")
         return None, None
 
-# ---------------------------------------------------------
-# 3. GESTIÓN DE DATOS (LECTURA AUTOMÁTICA GITHUB)
-# ---------------------------------------------------------
 def get_data(file_input):
     df = None
     try:
@@ -104,63 +101,59 @@ def get_data(file_input):
         st.error(f"Error en datos: {e}"); return None
 
 # ---------------------------------------------------------
-# 4. INTERFAZ Y PROCESAMIENTO
+# 3. INTERFAZ Y PROCESAMIENTO
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
-df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
 
-# SIDEBAR: IDENTIDAD Y AJUSTES
-st.sidebar.markdown("## 🌾 PREDWEEM")
+# --- BARRA LATERAL CON LOGO ---
+logo_path = BASE / "logo.png"
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width=True)
+else:
+    st.sidebar.title("🌿 PREDWEEM")
+
 st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
-if st.sidebar.button("🔄 Actualizar Datos"): st.rerun()
+df = get_data(st.sidebar.file_uploader("Subir Clima (Opcional)", type=["xlsx", "csv"]))
 
+if st.sidebar.button("🔄 Actualizar Datos"): st.rerun()
 st.sidebar.divider()
-umbral_er = st.sidebar.slider("Sensibilidad de Detección", 0.05, 0.80, 0.45)
+umbral_er = st.sidebar.slider("Sensibilidad Detección", 0.05, 0.80, 0.45)
 dga_optimo = st.sidebar.slider("Umbral Óptimo (°Cd)", 50, 800, 600)
 dga_critico = st.sidebar.slider("Umbral Crítico (°Cd)", 600, 1200, 850)
 
 if df is not None and modelo_ann is not None:
-    # Cálculos Técnicos
+    # Cálculos
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0 # Filtro ruido
+    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     
     df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0) 
     max_er = df["EMERREL"].max()
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
 
-    # CABECERA PRINCIPAL
-    st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
-    st.caption("Sistema de predicción de emergencia y ventana de acción agronómica.")
+    st.title("🌾 PREDWEEM | TRES ARROYOS 2026")
 
-    # 1. VISUALIZACIÓN DE RIESGO (SEMAFORO)
+    # Gráficos Semafóricos y Pulsos
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
-        zmin=0, zmax=1,
-        showscale=False,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Intensidad: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
+        zmin=0, zmax=1, showscale=False,
+        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0), title="Mapa Semafórico de Riesgo")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # 2. GRÁFICO DE PULSOS (EMERREL)
     fig_emer = go.Figure()
-    fig_emer.add_trace(go.Scatter(
-        x=df["Fecha"], y=df["EMERREL"], 
-        mode='lines', name='Emergencia',
-        line=dict(color='#166534', width=2.5),
-        fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
-    ))
-    fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", 
-                       annotation_text="Umbral de Alerta", annotation_position="top right")
-    fig_emer.update_layout(title="Dinámica de Emergencia Diaria (EMERREL)", height=300, margin=dict(t=40, b=40))
+    fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', 
+                                 line=dict(color='#166534', width=2), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
+    fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange")
+    fig_emer.update_layout(title="Pulsos de Emergencia (EMERREL)", height=300)
     st.plotly_chart(fig_emer, use_container_width=True)
 
-    # 3. VENTANA DE ACCIÓN
+    # Ventana de Acción
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
     fecha_inicio_ventana = None
     for i in range(len(indices_pulso) - 1):
@@ -170,7 +163,7 @@ if df is not None and modelo_ann is not None:
 
     if fecha_inicio_ventana:
         st.divider()
-        st.header("🗓️ Cronograma y Fechas Límite de Acción")
+        st.header("🗓️ Ventana de Acción y Fechas Límite")
         
         df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
@@ -185,37 +178,29 @@ if df is not None and modelo_ann is not None:
         f_opt, s_opt = calc_limite(dga_optimo)
         f_cri, s_cri = calc_limite(dga_critico)
 
-        # Métricas
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
-        c2.metric("Suma Térmica", f"{dga_actual:.1f} °Cd")
-        c3.metric("Fecha Límite Óptima", f_opt.strftime("%d-%b"))
-
-        # Tabla de Niveles
+        # Tabla y Alertas
         st.table(pd.DataFrame({
-            "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
-            "Fenología": ["1-3 hojas (Sin macollos)", "Inicio Macollaje", "Macollaje Avanzado"],
-            "Fecha Límite": [f_opt.strftime("%d-%m-%Y"), f_cri.strftime("%d-%m-%Y"), "Control Comprometido"],
-            "Estado": [s_opt, s_cri, "ALTA RESISTENCIA"]
+            "Estado": ["🟢 ÓPTIMO", "🟡 LÍMITE", "🔴 CRÍTICO"],
+            "Descripción": ["1-3 hojas", "Macollaje Inicial", "Macollaje Avanzado"],
+            "Fecha Límite": [f_opt.strftime("%d-%m-%Y"), f_cri.strftime("%d-%m-%Y"), "Riesgo Alto"],
+            "Confianza": [s_opt, s_cri, "ALTO IMPACTO"]
         }))
 
         if dga_actual <= dga_optimo:
-            st.success(f"✅ **VENTANA ÓPTIMA:** Aplicar antes del **{f_opt.strftime('%d-%m-%Y')}** para máxima eficacia.")
+            st.success(f"✅ **VENTANA ÓPTIMA:** Fecha límite estimada: **{f_opt.strftime('%d-%m-%Y')}**.")
         elif dga_actual <= dga_critico:
-            st.warning(f"⚠️ **ESTADO LÍMITE:** Ventana óptima cerrada el {f_opt.strftime('%d-%m-%Y')}. Límite crítico: **{f_cri.strftime('%d-%m-%Y')}**.")
+            st.warning(f"⚠️ **ESTADO LÍMITE:** Ventana óptima cerrada. Límite crítico: **{f_cri.strftime('%d-%m-%Y')}**.")
         else:
-            st.error(f"❗ **ESTADO CRÍTICO:** Superado el límite el {f_cri.strftime('%d-%m-%Y')}. Se esperan fallas de control.")
+            st.error(f"❗ **ESTADO CRÍTICO:** Superado el límite el {f_cri.strftime('%d-%m-%Y')}.")
 
     else:
-        st.info(f"⏳ Monitoreando... Se activará el cronograma al detectar 2 pulsos cercanos ≥ {umbral_er}.")
+        st.info("Aún no se detecta el inicio de la emergencia (esperando 2 pulsos significativos).")
 
-    # Descarga
+    # Reporte
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='PREDWEEM_2026')
-    st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026_TRES_ARROYOS.xlsx")
+    st.sidebar.download_button("📥 Reporte Excel", output.getvalue(), "PREDWEEM_2026.xlsx")
 
 else:
-    st.warning("⚠️ Esperando datos de meteo_daily.csv o subida manual.")
-
-st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
+    st.warning("⚠️ Asegúrate de que 'meteo_daily.csv' y 'logo.png' estén en el repositorio.")
