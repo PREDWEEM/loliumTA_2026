@@ -12,7 +12,7 @@ from pathlib import Path
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
 
 # URL del logo en GitHub (asegúrate de que sea el enlace "raw")
-LOGO_URL = "https://github.com/PREDWEEM/loliumTA_2026/blob/main/logo.png"
+LOGO_URL = "https://github.com/PREDWEEM/loliumTA_2026/blob/63a06ffbcbad81c47705e7db2970400fa88d2bfd/logo.png"
 
 # Estilo CSS personalizado
 st.markdown("""
