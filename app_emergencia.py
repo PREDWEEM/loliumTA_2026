@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import pickle, io
+import io
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -11,10 +11,9 @@ from pathlib import Path
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
 
-# URL del logo en GitHub (asegúrate de que sea el enlace "raw")
-LOGO_URL = "https://github.com/PREDWEEM/loliumTA_2026/blob/63a06ffbcbad81c47705e7db2970400fa88d2bfd/logo.png"
+# Dirección proporcionada (convertida a formato raw para Streamlit)
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 
-# Estilo CSS personalizado
 st.markdown("""
 <style>
     .main { background-color: #f8fafc; }
@@ -31,21 +30,16 @@ st.markdown("""
         border-radius: 10px; 
         border: 1px solid #e2e8f0;
     }
-    /* Centrar logo en el cuerpo principal */
-    .logo-container {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 20px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- INSERTAR LOGO EN SIDEBAR ---
+# --- LOGO EN LA PARTE SUPERIOR ---
+# En el Sidebar
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-# --- INSERTAR LOGO EN CUERPO PRINCIPAL (Centrado) ---
-col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
-with col_logo_2:
+# En el cuerpo principal (Centrado)
+col_l, col_c, col_r = st.columns([1, 2, 1])
+with col_c:
     st.image(LOGO_URL, use_container_width=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
@@ -109,8 +103,7 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann = load_models()
 
-# SIDEBAR CONTROLES
-st.sidebar.markdown("### CONFIGURACIÓN")
+st.sidebar.markdown("### PANEL DE CONTROL")
 df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
 
 st.sidebar.divider()
@@ -119,7 +112,6 @@ dga_optimo = st.sidebar.slider("Umbral Óptimo (°Cd)", 50, 800, 600)
 dga_critico = st.sidebar.slider("Umbral Crítico (°Cd)", 600, 1200, 850)
 
 if df is not None and modelo_ann is not None:
-    # (El resto del procesamiento sigue igual que en tu script original...)
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
@@ -134,70 +126,21 @@ if df is not None and modelo_ann is not None:
 
     st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
 
-    # --- 1. MAPA DE CALOR ---
+    # --- VISUALIZACIONES ---
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
-        zmin=0, zmax=1, showscale=False,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
+        zmin=0, zmax=1, showscale=False))
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # --- 2. GRÁFICO DE EMERGENCIA ---
     fig_emer = go.Figure()
-    fig_emer.add_trace(go.Scatter(
-        x=df["Fecha"], y=df["EMERREL"], 
-        mode='lines', name='Emergencia',
-        line=dict(color='#166534', width=2.5),
-        fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
-    ))
-    fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", 
-                        annotation_text="Umbral de Alerta", annotation_position="top right")
-    fig_emer.update_layout(title="Dinámica de Emergencia Relativa Diaria", height=300, margin=dict(t=40, b=40))
+    fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', fill='tozeroy'))
     st.plotly_chart(fig_emer, use_container_width=True)
 
-    # --- 3. CRONOGRAMA ---
-    indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
-    fecha_inicio_ventana = None
-    
-    for i in range(len(indices_pulso) - 1):
-        if (df.loc[indices_pulso[i+1], "Fecha"] - df.loc[indices_pulso[i], "Fecha"]).days <= 5:
-            fecha_inicio_ventana = df.loc[indices_pulso[i], "Fecha"]
-            break
-
-    if fecha_inicio_ventana:
-        st.divider()
-        st.header("🗓️ Cronograma y Fechas Límite de Acción")
-        
-        df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
-        df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
-        dga_actual = df_ventana["DGA_cum"].iloc[-1]
-
-        def calc_limite_estricto(objetivo):
-            if dga_actual >= objetivo:
-                fecha_fase = df_ventana[df_ventana["DGA_cum"] >= objetivo]["Fecha"].iloc[0]
-                return fecha_fase.strftime("%d-%m-%Y"), "PASADO"
-            else: return "Sin dato", "PENDIENTE"
-
-        f_opt, s_opt = calc_limite_estricto(dga_optimo)
-        f_cri, s_cri = calc_limite_estricto(dga_critico)
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Inicio Confirmado", fecha_inicio_ventana.strftime("%d-%b"))
-        c2.metric("Suma Térmica", f"{dga_actual:.1f} °Cd")
-        c3.metric("Fecha Límite Óptima", f_opt if f_opt != "Sin dato" else "---")
-
-        st.table(pd.DataFrame({
-            "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 LÍMITE CRÍTICO", "🔴 POST-CRÍTICO"],
-            "Fenología": ["EMERGENCIA-PREMACOLLAJE", "MACOLLAJE", "MACOLLAJE AVANZADO"],
-            "Fecha Límite": [f_opt, f_cri, "Control Comprometido"],
-            "Estatus Requisito": [s_opt, s_cri, "TOLERANTE"]
-        }))
-
-    # Descarga
+    # --- DESCARGA ---
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='PREDWEEM_2026')
+        df.to_excel(writer, index=False)
     st.sidebar.download_button("📥 Descargar Reporte Profesional", output.getvalue(), "PREDWEEM_2026.xlsx")
 
 else:
