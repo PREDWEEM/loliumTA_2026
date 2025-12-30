@@ -18,9 +18,6 @@ LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.p
 # Mostrar logo en la parte superior de la barra lateral
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-st.sidebar.markdown("## 🌾 PREDWEEM")
-st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
-
 st.markdown("""
 <style>
     .main { background-color: #f8fafc; }
