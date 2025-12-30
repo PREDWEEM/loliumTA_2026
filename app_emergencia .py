@@ -6,10 +6,14 @@ import plotly.graph_objects as go
 import pickle, io
 from pathlib import Path
 
+
 # ---------------------------------------------------------
-# 1. CONFIGURACIÓN Y ESTILO
+# 1. CONFIGURACIÓN, ESTILO Y LOGO
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
+
+# Dirección proporcionada (convertida a formato raw para Streamlit)
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 
 st.markdown("""
 <style>
@@ -30,7 +34,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- LOGO EN LA PARTE SUPERIOR ---
+# En el Sidebar
+st.sidebar.image(LOGO_URL, use_container_width=True)
+
+# En el cuerpo principal (Centrado)
+col_l, col_c, col_r = st.columns([1, 2, 1])
+with col_c:
+    st.image(LOGO_URL, use_container_width=True)
+
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
+
 
 # ---------------------------------------------------------
 # 2. MODELOS Y FUNCIONES TÉCNICAS
