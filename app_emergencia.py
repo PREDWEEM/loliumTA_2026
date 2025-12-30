@@ -104,7 +104,7 @@ st.sidebar.markdown("### LOLIUM TRES ARROYOS 2026")
 df = get_data(st.sidebar.file_uploader("Subir Clima Manual (Opcional)", type=["xlsx", "csv"]))
 
 st.sidebar.divider()
-umbral_er = st.sidebar.slider("Sensibilidad de Detección", 0.05, 0.80, 0.45)
+umbral_er = st.sidebar.slider("Sensibilidad de Detección", 0.05, 0.80, 0.50)
 dga_optimo = st.sidebar.slider("Umbral Óptimo (°Cd)", 50, 800, 600)
 dga_critico = st.sidebar.slider("Umbral Crítico (°Cd)", 600, 1200, 850)
 
