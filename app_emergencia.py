@@ -6,16 +6,13 @@ import plotly.graph_objects as go
 import pickle, io
 from pathlib import Path
 
-
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", layout="wide")
 
-# URL del Logo (Formato Raw para acceso directo)
+# URL del Logo
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
-
-# Mostrar logo en la parte superior de la barra lateral
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.markdown("""
@@ -125,12 +122,23 @@ if df is not None and modelo_ann is not None:
 
     st.title("🌾 PREDWEEM | LOLIUM TRES ARROYOS 2026")
 
-    # --- 1. MAPA DE CALOR (RIESGO) ---
+    # --- 1. MAPA DE CALOR (RIESGO) CON ESCALA DISCRETA ---
+    # Definimos los cortes duros para los colores
+    custom_colorscale = [
+        [0.00, "green"],  # Inicio Verde
+        [0.49, "green"],  # Final Verde
+        [0.49, "yellow"], # Inicio Amarillo (Salto inmediato)
+        [0.90, "yellow"], # Final Amarillo
+        [0.90, "red"],    # Inicio Rojo (Salto inmediato)
+        [1.00, "red"]     # Final Rojo
+    ]
+
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
-        colorscale=[[0, 'green'], [0.5, 'yellow'], [1, 'red']],
+        colorscale=custom_colorscale, # Aplicamos la escala personalizada
         zmin=0, zmax=1, showscale=False,
         hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
+    
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Calor: Intensidad de Riesgo")
     st.plotly_chart(fig_risk, use_container_width=True)
 
