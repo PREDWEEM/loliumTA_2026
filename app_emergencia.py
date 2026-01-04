@@ -161,7 +161,7 @@ if df is not None and modelo_ann is not None:
     # Limpieza post-predicción
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     # Forzamos cero los primeros 15 días del año (ruido biológico)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
+    df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0
     
     # 3. Cálculo de Grados Día (Base 2.0°C para Lolium)
     df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0)
