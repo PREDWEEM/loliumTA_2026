@@ -229,8 +229,9 @@ if df is not None and modelo_ann is not None:
     )
     st.plotly_chart(fig_emer, use_container_width=True)
 
+
     # -----------------------------------------------------
-    # LÓGICA DE DECISIÓN Y CRONOGRAMA
+    # LÓGICA DE DECISIÓN Y CRONOGRAMA CON MONITOR SEMÁFORO
     # -----------------------------------------------------
     # Detectar inicio de ventana: Primer pulso sostenido sobre el umbral
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
@@ -245,7 +246,7 @@ if df is not None and modelo_ann is not None:
 
     if fecha_inicio_ventana:
         st.divider()
-        st.header("🗓️ Cronograma y Ventana de Acción")
+        st.header("🗓️ Monitor de Ventana de Aplicación")
         
         # Filtramos datos desde el inicio de la ventana biológica
         df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
@@ -254,43 +255,83 @@ if df is not None and modelo_ann is not None:
         df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
         dga_actual_acumulado = df_ventana["DGA_cum"].iloc[-1]
 
-        # Función auxiliar para determinar fechas límite
-        def obtener_estado(objetivo_termico):
-            # Si ya acumulamos el calor suficiente en los datos históricos/actuales
-            if dga_actual_acumulado >= objetivo_termico:
-                # Buscar el día exacto donde se cruzó el umbral
-                row_cruce = df_ventana[df_ventana["DGA_cum"] >= objetivo_termico].iloc[0]
-                return row_cruce["Fecha"].strftime("%d-%m-%Y"), "PASADO"
+        # Estructura de columnas para el Dashboard
+        col_info, col_gauge = st.columns([1.5, 1])
+
+        # --- COLUMNA DERECHA: MONITOR SEMÁFORO ---
+        with col_gauge:
+            # Definir rango máximo del reloj (un 20% más del crítico para dar margen visual al rojo)
+            max_axis = dga_critico * 1.2
+            
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number+delta",
+                value = dga_actual_acumulado,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': "<b>ACUMULACIÓN TÉRMICA</b><br><span style='font-size:0.8em;color:gray'>Grados Días (°Cd)</span>"},
+                delta = {'reference': dga_optimo, 'increasing': {'color': "gray"}},
+                gauge = {
+                    'axis': {'range': [None, max_axis], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'bar': {'color': "black", 'thickness': 0.05}, # La aguja fina
+                    'bgcolor': "white",
+                    'borderwidth': 2,
+                    'bordercolor': "gray",
+                    'steps': [
+                        # ZONA VERDE (OPTIMO): 0 a Umbral Óptimo
+                        {'range': [0, dga_optimo], 'color': "#4ade80"},
+                        # ZONA AMARILLA (ALERTA): Óptimo a Crítico
+                        {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
+                        # ZONA ROJA (TARDIÓ): Supera Crítico
+                        {'range': [dga_critico, max_axis], 'color': "#f87171"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': dga_actual_acumulado
+                    }
+                }
+            ))
+            fig_gauge.update_layout(height=300, margin=dict(t=50, b=10, l=30, r=30))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # --- COLUMNA IZQUIERDA: INFORMACIÓN Y TABLAS ---
+        with col_info:
+            # Función auxiliar para determinar fechas límite
+            def obtener_estado(objetivo_termico):
+                if dga_actual_acumulado >= objetivo_termico:
+                    row_cruce = df_ventana[df_ventana["DGA_cum"] >= objetivo_termico].iloc[0]
+                    return row_cruce["Fecha"].strftime("%d-%m-%Y"), "PASADO"
+                else:
+                    return "Proyección Futura", "PENDIENTE"
+
+            f_opt, status_opt = obtener_estado(dga_optimo)
+            f_cri, status_cri = obtener_estado(dga_critico)
+
+            # Métricas KPI
+            sub_c1, sub_c2 = st.columns(2)
+            sub_c1.metric("Inicio de Cohorte", fecha_inicio_ventana.strftime("%d-%b"))
+            sub_c2.metric("Fecha Límite Óptima", f_opt)
+
+            # Tabla de Estados
+            st.subheader("Estados Fenológicos")
+            datos_tabla = {
+                "Zona": ["🟢 VERDE", "🟡 AMARILLA", "🔴 ROJA"],
+                "Fase": ["Ventana Óptima", "Ventana Crítica", "Fuera de Ventana"],
+                "Rango Térmico": [f"0 - {dga_optimo} °Cd", f"{dga_optimo} - {dga_critico} °Cd", f"> {dga_critico} °Cd"],
+                "Situación Actual": [
+                    "✅ ACTIVO" if dga_actual_acumulado <= dga_optimo else "",
+                    "⚠️ ACTIVO" if dga_optimo < dga_actual_acumulado <= dga_critico else "",
+                    "🚫 ACTIVO" if dga_actual_acumulado > dga_critico else ""
+                ]
+            }
+            st.table(pd.DataFrame(datos_tabla))
+
+            # Mensajes Contextuales
+            if status_opt == "PENDIENTE":
+                st.success(f"✅ **CONDICIÓN IDEAL:** La ventana está abierta. Faltan {dga_optimo - dga_actual_acumulado:.1f} °Cd para el cierre de la ventana óptima.")
+            elif status_cri == "PENDIENTE":
+                st.warning(f"⚠️ **ATENCIÓN:** Se ha superado la fecha óptima ({f_opt}). Estás en la ventana crítica. El control disminuye progresivamente.")
             else:
-                return "Proyección Futura", "PENDIENTE"
-
-        f_opt, status_opt = obtener_estado(dga_optimo)
-        f_cri, status_cri = obtener_estado(dga_critico)
-
-        # 1. Métricas KPI
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Inicio de Cohorte", fecha_inicio_ventana.strftime("%d-%b"))
-        kpi2.metric("Suma Térmica Actual", f"{dga_actual_acumulado:.1f} °Cd")
-        kpi3.metric("Fecha Límite Óptima", f_opt)
-
-        # 2. Tabla de Estados
-        st.subheader("Estados Fenológicos")
-        datos_tabla = {
-            "Nivel de Alerta": ["🟢 ÓPTIMO", "🟡 CRÍTICO", "🔴 TARDIÓ"],
-            "Fenología Estimada": ["Emergencia - 1 Hoja", "Macollaje Inicio", "Macollaje Avanzado"],
-            "Umbral Térmico": [f"Hasat {dga_optimo} °Cd", f"{dga_optimo} - {dga_critico} °Cd", f"> {dga_critico} °Cd"],
-            "Fecha Límite": [f_opt, f_cri, "Control Comprometido"],
-            "Estado": [status_opt, status_cri, "NO RECOMENDADO"]
-        }
-        st.table(pd.DataFrame(datos_tabla))
-
-        # 3. Mensajes Contextuales
-        if status_opt == "PENDIENTE":
-            st.info(f"⏳ La ventana está abierta. Faltan {dga_optimo - dga_actual_acumulado:.1f} °Cd para el límite óptimo.")
-        elif status_cri == "PENDIENTE":
-            st.warning(f"⚠️ **ATENCIÓN:** Se ha superado la fecha óptima ({f_opt}). Estás en la ventana crítica hasta {f_cri}.")
-        else:
-            st.error(f"🚫 **ALERTA ROJA:** Se ha superado el límite crítico ({f_cri}). Eficacia de control reducida.")
+                st.error(f"🚫 **ALERTA ROJA:** Se ha superado el límite crítico ({f_cri}). Eficacia de control severamente comprometida.")
             
     else:
         st.info(f"⏳ **Sistema en Espera:** No se han detectado pulsos de emergencia significativos (>= {umbral_er}) para iniciar el conteo térmico.")
