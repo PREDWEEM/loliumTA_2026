@@ -16,6 +16,7 @@ st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.set_page_config(
     LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
+    st.set_page.image(LOGO_URL, use_container_width=True)
     page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", 
     layout="wide",
     page_icon="🌾"
