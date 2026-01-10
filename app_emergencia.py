@@ -233,68 +233,65 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # LÓGICA DE DECISIÓN Y CRONOGRAMA CON MONITOR SEMÁFORO
     # -----------------------------------------------------
-    # Detectar inicio de ventana: Primer pulso sostenido sobre el umbral
+    # Detectar inicio de ventana
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
     fecha_inicio_ventana = None
     
-    # Buscamos dos días cercanos con alta emergencia para confirmar inicio
     for i in range(len(indices_pulso) - 1):
         delta_dias = (df.loc[indices_pulso[i+1], "Fecha"] - df.loc[indices_pulso[i], "Fecha"]).days
         if delta_dias <= 5:
             fecha_inicio_ventana = df.loc[indices_pulso[i], "Fecha"]
             break
 
+    # Inicialización de variables para el semáforo (por defecto en 0)
+    dga_actual_acumulado = 0.0
+    df_ventana = pd.DataFrame()
+
     if fecha_inicio_ventana:
-        st.divider()
-        st.header("🗓️ Monitor de Ventana de Aplicación")
-        
-        # Filtramos datos desde el inicio de la ventana biológica
         df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
-        
-        # Acumulación de tiempo térmico desde ese momento
         df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
         dga_actual_acumulado = df_ventana["DGA_cum"].iloc[-1]
 
-        # Estructura de columnas para el Dashboard
-        col_info, col_gauge = st.columns([1.5, 1])
+    st.divider()
+    st.header("🗓️ Monitor de Ventana de Aplicación")
+    
+    # Estructura de columnas para el Dashboard (Siempre visible)
+    col_info, col_gauge = st.columns([1.5, 1])
 
-        # --- COLUMNA DERECHA: MONITOR SEMÁFORO ---
-        with col_gauge:
-            # Definir rango máximo del reloj (un 20% más del crítico para dar margen visual al rojo)
-            max_axis = dga_critico * 1.2
-            
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number+delta",
-                value = dga_actual_acumulado,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "<b>ACUMULACIÓN TÉRMICA</b><br><span style='font-size:0.8em;color:gray'>Grados Días (°Cd)</span>"},
-                delta = {'reference': dga_optimo, 'increasing': {'color': "gray"}},
-                gauge = {
-                    'axis': {'range': [None, max_axis], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                    'bar': {'color': "black", 'thickness': 0.05}, # La aguja fina
-                    'bgcolor': "white",
-                    'borderwidth': 2,
-                    'bordercolor': "gray",
-                    'steps': [
-                        # ZONA VERDE (OPTIMO): 0 a Umbral Óptimo
-                        {'range': [0, dga_optimo], 'color': "#4ade80"},
-                        # ZONA AMARILLA (ALERTA): Óptimo a Crítico
-                        {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
-                        # ZONA ROJA (TARDIÓ): Supera Crítico
-                        {'range': [dga_critico, max_axis], 'color': "#f87171"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': dga_actual_acumulado
-                    }
+    # --- COLUMNA DERECHA: MONITOR SEMÁFORO (Siempre visible) ---
+    with col_gauge:
+        max_axis = dga_critico * 1.2
+        
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = dga_actual_acumulado,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "<b>ACUMULACIÓN TÉRMICA</b><br><span style='font-size:0.8em;color:gray'>Grados Días (°Cd)</span>"},
+            delta = {'reference': dga_optimo, 'increasing': {'color': "gray"}},
+            gauge = {
+                'axis': {'range': [None, max_axis], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                'bar': {'color': "black", 'thickness': 0.05},
+                'bgcolor': "white",
+                'borderwidth': 2,
+                'bordercolor': "gray",
+                'steps': [
+                    {'range': [0, dga_optimo], 'color': "#4ade80"},
+                    {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
+                    {'range': [dga_critico, max_axis], 'color': "#f87171"}
+                ],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': dga_actual_acumulado
                 }
-            ))
-            fig_gauge.update_layout(height=300, margin=dict(t=50, b=10, l=30, r=30))
-            st.plotly_chart(fig_gauge, use_container_width=True)
+            }
+        ))
+        fig_gauge.update_layout(height=300, margin=dict(t=50, b=10, l=30, r=30))
+        st.plotly_chart(fig_gauge, use_container_width=True)
 
-        # --- COLUMNA IZQUIERDA: INFORMACIÓN Y TABLAS ---
-        with col_info:
+    # --- COLUMNA IZQUIERDA: INFORMACIÓN Y TABLAS ---
+    with col_info:
+        if fecha_inicio_ventana:
             # Función auxiliar para determinar fechas límite
             def obtener_estado(objetivo_termico):
                 if dga_actual_acumulado >= objetivo_termico:
@@ -327,15 +324,21 @@ if df is not None and modelo_ann is not None:
 
             # Mensajes Contextuales
             if status_opt == "PENDIENTE":
-                st.success(f"✅ **CONDICIÓN IDEAL:** La ventana está abierta. Faltan {dga_optimo - dga_actual_acumulado:.1f} °Cd para el cierre de la ventana óptima.")
+                st.success(f"✅ **CONDICIÓN IDEAL:** La ventana está abierta. Faltan {dga_optimo - dga_actual_acumulado:.1f} °Cd.")
             elif status_cri == "PENDIENTE":
-                st.warning(f"⚠️ **ATENCIÓN:** Se ha superado la fecha óptima ({f_opt}). Estás en la ventana crítica. El control disminuye progresivamente.")
+                st.warning(f"⚠️ **ATENCIÓN:** Ventana crítica. Fecha óptima superada ({f_opt}).")
             else:
-                st.error(f"🚫 **ALERTA ROJA:** Se ha superado el límite crítico ({f_cri}). Eficacia de control severamente comprometida.")
+                st.error(f"🚫 **ALERTA ROJA:** Límite crítico superado ({f_cri}). Eficacia comprometida.")
+        else:
+            # Estado de espera cuando no hay inicio de cohorte
+            st.info(f"⏳ **Sistema en Espera:** No se han detectado pulsos de emergencia significativos (>= {umbral_er}).")
+            st.markdown(f"""
+            **Configuración Actual:**
+            * **Umbral Térmico Óptimo:** {dga_optimo} °Cd
+            * **Umbral Térmico Crítico:** {dga_critico} °Cd
             
-    else:
-        st.info(f"⏳ **Sistema en Espera:** No se han detectado pulsos de emergencia significativos (>= {umbral_er}) para iniciar el conteo térmico.")
-
+            El conteo de Grados Día se activará automáticamente cuando la emergencia diaria supere el **{umbral_er*100:.0f}%**.
+            """)
     # -----------------------------------------------------
     # EXPORTACIÓN
     # -----------------------------------------------------
