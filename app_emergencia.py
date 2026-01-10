@@ -14,6 +14,8 @@ from pathlib import Path
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
+st.image(LOGO_URL, width=150)
+
 st.set_page_config(
     page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", 
     layout="wide",
