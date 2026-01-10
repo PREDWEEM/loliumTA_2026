@@ -29,12 +29,7 @@ st.set_page_config(
 # Inyección de CSS para Personalización y Bloqueo de Menús "View Source"
 st.markdown("""
 <style>
-    /* BLOQUEO DE INTERFAZ GITHUB / STREAMLIT */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    
+   
     /* ESTILO VISUAL PREDWEEM */
     .main { background-color: #f8fafc; }
     [data-testid="stSidebar"] {
