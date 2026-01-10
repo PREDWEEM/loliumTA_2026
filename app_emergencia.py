@@ -20,10 +20,6 @@ st.set_page_config(
     page_icon="🌾"
 )
 
-# URL del Logo (Formato Raw)
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
-st.sidebar.image(LOGO_URL, use_container_width=True)
-
 # Inyección de CSS para Personalización y Bloqueo de Menús "View Source"
 st.markdown("""
 <style>
