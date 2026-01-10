@@ -33,9 +33,7 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .stAppDeployButton {display:none;}
-    [data-testid="stStatusWidget"] {visibility: hidden;}
-    [data-testid="stToolbar"] {visibility: hidden;}
+    
     
     /* ESTILO VISUAL PREDWEEM */
     .main { background-color: #f8fafc; }
