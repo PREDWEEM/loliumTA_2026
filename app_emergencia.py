@@ -19,9 +19,18 @@ st.set_page_config(
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-# Inyección de CSS para personalizar la apariencia
+# Inyección de CSS para Personalización y Bloqueo de Menús "View Source"
 st.markdown("""
 <style>
+    /* BLOQUEO DE INTERFAZ GITHUB / STREAMLIT */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stAppDeployButton {display:none;}
+    [data-testid="stStatusWidget"] {visibility: hidden;}
+    [data-testid="stToolbar"] {visibility: hidden;}
+    
+    /* ESTILO VISUAL PREDWEEM */
     .main { background-color: #f8fafc; }
     [data-testid="stSidebar"] {
         background-color: #dcfce7; 
