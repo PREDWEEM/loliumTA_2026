@@ -26,31 +26,6 @@ st.set_page_config(
     page_icon="🌾"
 )
 
-# Inyección de CSS para Personalización y Bloqueo de Menús "View Source"
-st.markdown("""
-<style>
-   
-    /* ESTILO VISUAL PREDWEEM */
-    .main { background-color: #f8fafc; }
-    [data-testid="stSidebar"] {
-        background-color: #dcfce7; 
-        border-right: 1px solid #bbf7d0;
-    }
-    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p {
-        color: #166534 !important;
-    }
-    .stMetric { 
-        background-color: #ffffff; 
-        padding: 15px; 
-        border-radius: 10px; 
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
-
 # ---------------------------------------------------------
 # 2. CLASE DEL MODELO NEURONAL (ANN)
 # ---------------------------------------------------------
