@@ -9,6 +9,11 @@ from pathlib import Path
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
+
+# URL del Logo (Formato Raw)
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
+st.sidebar.image(LOGO_URL, use_container_width=True)
+
 st.set_page_config(
     page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", 
     layout="wide",
