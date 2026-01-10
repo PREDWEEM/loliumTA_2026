@@ -9,22 +9,38 @@ from pathlib import Path
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
-
-# URL del Logo (Formato Raw)
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
-st.sidebar.image(LOGO_URL, use_container_width=True)
-
-# Creamos 3 columnas, la del medio contiene el logo
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col2:
-    st.image(LOGO_URL, use_container_width=True)
-
 st.set_page_config(
     page_title="PREDWEEM – LOLIUM TRES ARROYOS 2026", 
     layout="wide",
     page_icon="🌾"
 )
+
+# URL del Logo (Formato Raw)
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
+st.sidebar.image(LOGO_URL, use_container_width=True)
+
+# Inyección de CSS para personalizar la apariencia
+st.markdown("""
+<style>
+    .main { background-color: #f8fafc; }
+    [data-testid="stSidebar"] {
+        background-color: #dcfce7; 
+        border-right: 1px solid #bbf7d0;
+    }
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p {
+        color: #166534 !important;
+    }
+    .stMetric { 
+        background-color: #ffffff; 
+        padding: 15px; 
+        border-radius: 10px; 
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
 # ---------------------------------------------------------
 # 2. CLASE DEL MODELO NEURONAL (ANN)
