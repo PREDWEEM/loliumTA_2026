@@ -11,6 +11,20 @@ import plotly.graph_objects as go
 import pickle, io
 from pathlib import Path
 
+# Configuración de la página (opcional, pero recomendada)
+st.set_page_config(page_title="Mi App", layout="wide")
+
+# CSS para ocultar el menú hamburguesa, el header y el footer
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+
 # ---------------------------------------------------------
 # 0. ROBUSTNESS: GENERADOR DE ARCHIVOS MOCK (Para pruebas)
 # ---------------------------------------------------------
