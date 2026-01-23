@@ -203,7 +203,7 @@ if df is not None and modelo_ann is not None:
     
     # Limpieza
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 # Filtro biológico inicial
     
     # C. Cálculo de Grados Día (Base 2.0°C)
     df["DG"] = np.maximum(((df["TMAX"] + df["TMIN"]) / 2) - 2.0, 0)
