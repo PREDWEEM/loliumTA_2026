@@ -158,7 +158,7 @@ st.sidebar.divider()
 st.sidebar.markdown("**Parámetros de Simulación**")
 umbral_er = st.sidebar.slider("Umbral de Alerta (Emergencia Diaria)", 0.05, 0.80, 0.50)
 dga_optimo = st.sidebar.slider("Umbral Térmico Óptimo (°Cd)", 50, 800, 600)
-dga_critico = st.sidebar.slider("Umbral Térmico Crítico (°Cd)", 600, 1200, 850)
+dga_critico = st.sidebar.slider("Umbral Térmico Crítico (°Cd)", 600, 1200, 700)
 
 # --- CUERPO PRINCIPAL ---
 if df is not None and modelo_ann is not None:
