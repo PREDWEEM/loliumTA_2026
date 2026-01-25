@@ -219,7 +219,7 @@ st.sidebar.markdown("**Objetivos Acumulados (°Cd)**")
 dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
 dga_critico = st.sidebar.number_input("Límite Ventana", value=700, step=50)
 
-st.sidebar.caption("PREDWEEM vK4 | Tres Arroyos 2026")
+st.sidebar.caption("PREDWEEM vK4 | TRES Arroyos 2026")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO PRINCIPAL
@@ -244,7 +244,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM-BALCARCE 2026")
+    st.title("🌾 PREDWEEM LOLIUM TRES ARROYOS 2026")
 
     # Heatmap de Intensidad (Cabecera)
     colorscale_hard = [[0.0, "green"], [0.49, "green"], [0.49, "yellow"], [0.90, "yellow"], [0.90, "red"], [1.0, "red"]]
