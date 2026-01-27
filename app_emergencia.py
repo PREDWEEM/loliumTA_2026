@@ -211,7 +211,7 @@ col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1:
     t_base_val = st.number_input("T Base", value=2.0, step=0.5, help="Mínima biológica")
 with col_t2:
-    t_opt_max = st.number_input("T Óptima Max", value=25.0, step=1.0, help="Inicio de estrés")
+    t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0, help="Inicio de estrés")
 
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0, help="Temperatura letal/inhibición total")
 
