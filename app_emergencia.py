@@ -381,7 +381,7 @@ df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("**Parámetros de Emergencia**")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.25)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.50)
 
 st.sidebar.divider()
 st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
@@ -425,9 +425,9 @@ if df is not None and modelo_ann is not None and cluster_model is not None:
 
     # --- HEATMAP ---
     colorscale_hard = [
-        [0.0, "green"], [0.24, "green"],
-        [0.25, "yellow"], [0.74, "yellow"],
-        [0.75, "red"], [1.0, "red"]
+        [0.0, "green"], [0.49, "green"],
+        [0.50, "yellow"], [0.79, "yellow"],
+        [0.80, "red"], [1.0, "red"]
     ]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
