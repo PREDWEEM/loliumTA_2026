@@ -236,7 +236,7 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Prec_sum_15d"] < 10, "EMERREL"] = df["EMERREL"].clip(upper=0.14)
     
     # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0 
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
 
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
