@@ -228,10 +228,10 @@ if df is not None and modelo_ann is not None:
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
     # --- C. RESTRICCIÓN HÍDRICA (NUEVA LÓGICA) ---
-    # Calculamos la lluvia acumulada en una ventana de 10 días (incluyendo el actual)
+    # Calculamos la lluvia acumulada en una ventana de 15 días (incluyendo el actual)
     df["Prec_sum_15d"] = df["Prec"].rolling(window=15, min_periods=1).sum()
     
-    # Condicional solicitado: Si sum(Prec) < 5mm, EMERREL se capa en 0.14
+    # Condicional solicitado: Si sum(Prec) < 10mm, EMERREL se capa en 0.14
     # Esto simula que sin humedad previa no hay "explosión" de emergencia masiva
     df.loc[df["Prec_sum_15d"] < 10, "EMERREL"] = df["EMERREL"].clip(upper=0.14)
     
