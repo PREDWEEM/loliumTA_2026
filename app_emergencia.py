@@ -211,7 +211,7 @@ st.sidebar.markdown("**Objetivos (°Cd)**")
 dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
 dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
- ---------------------------------------------------------
+# ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
@@ -230,7 +230,7 @@ if df is not None and modelo_ann is not None:
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     # Aplicamos la función centralizada
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
-    
+     
     
     # -----------------------------------------------------
     # VISUALIZACIÓN
