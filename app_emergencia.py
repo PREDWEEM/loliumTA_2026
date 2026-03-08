@@ -237,9 +237,9 @@ if df is not None and modelo_ann is not None:
     # Calculamos la lluvia acumulada en una ventana de 21 días (incluyendo el actual)
     df["Prec_sum_15d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
     
-    # Condicional solicitado: Si sum(Prec) < 40mm, EMERREL se capa en 0
+    # Condicional solicitado: Si sum(Prec) < 30mm, EMERREL se capa en 0
     # Esto simula que sin humedad previa no hay "explosión" de emergencia masiva
-    df.loc[df["Prec_sum_15d"] < 40, "EMERREL"] = df["EMERREL"].clip(upper=0)
+    df.loc[df["Prec_sum_15d"] < 30, "EMERREL"] = df["EMERREL"].clip(upper=0)
     
     # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
