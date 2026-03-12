@@ -143,9 +143,7 @@ if f_meteo and f_valida:
         # Puntos observados en campo
         ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', s=60, zorder=5, label='Campo (Observado)')
         
-        # Puntos capturados por la ventana de tolerancia
-        ax.scatter(df_v['Fecha'], df_v['Pred'], color='orange', marker='X', s=80, zorder=6, label=f'Modelo (Ventana ±{radio}d)')
-        
+              
         ax.set_ylabel("Tasa Relativa de Emergencia")
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=5, frameon=False)
         ax.grid(True, linestyle='--', alpha=0.5)
