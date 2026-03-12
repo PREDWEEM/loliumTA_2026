@@ -130,15 +130,28 @@ if f_meteo and f_valida:
         m4.metric("Sesgo PBIAS", f"{pbias:.1f}%")
         m5.metric("Acierto Riesgo", f"{acc_cat:.1f}%")
 
-        # Gráfico de Validación
+        
+        # --- Gráfico de Validación ---
+        st.subheader("Comparativa: Dinámica Simulada vs Observaciones de Campo")
         fig, ax = plt.subplots(figsize=(12, 5))
-        ax.axhspan(0.5, 1.1, color='red', alpha=0.07, label='Riesgo Alto')
-        ax.axhspan(0.25, 0.5, color='orange', alpha=0.07, label='Riesgo Medio')
-        ax.plot(df_clima['Fecha'], df_clima['EMERREL'], color='green', lw=1.5, label='Modelo')
-        ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', label='Campo')
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=4, frameon=False)
+        ax.axhspan(0.5, 1.1, color='red', alpha=0.07, label='Riesgo Alto (>= 0.5)')
+        ax.axhspan(0.15, 0.5, color='orange', alpha=0.07, label='Riesgo Medio (0.25 - 0.5)')
+        
+        # Curva continua del modelo
+        ax.plot(df_clima['Fecha'], df_clima['EMERREL'], color='#166534', lw=2, label='Modelo (Diario)')
+        
+        # Puntos observados en campo
+        ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', s=60, zorder=5, label='Campo (Observado)')
+        
+        # Puntos capturados por la ventana de tolerancia
+        ax.scatter(df_v['Fecha'], df_v['Pred'], color='orange', marker='X', s=80, zorder=6, label=f'Modelo (Ventana ±{radio}d)')
+        
+        ax.set_ylabel("Tasa Relativa de Emergencia")
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=5, frameon=False)
+        ax.grid(True, linestyle='--', alpha=0.5)
         st.pyplot(fig)
 
+        
         # Análisis de Confusión
         with st.expander("📊 Matriz de Confusión: ¿Dónde falla el modelo?"):
             labels = ["BAJA/NULA", "INTERMEDIA", "ALTA"]
