@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -42,7 +41,7 @@ def calcular_metricas_completas(df_v):
     # 4. Error de Fase (Sincronía del Pico)
     fecha_pico_obs = df_v.loc[df_v['Obs'].idxmax(), 'Fecha']
     fecha_pico_pred = df_v.loc[df_v['Pred'].idxmax(), 'Fecha']
-    desfase_dias = (fecha_pico_pred - fecha_pico_obs).days
+    error_fase_dias = (fecha_pico_pred - fecha_pico_obs).days
     
     # 5. Accuracy por Categoría
     cat_obs = [categorizar_emergencia(v) for v in obs]
@@ -50,7 +49,7 @@ def calcular_metricas_completas(df_v):
     aciertos = sum(1 for o, p in zip(cat_obs, cat_pred) if o == p)
     accuracy_cat = (aciertos / len(obs)) * 100
     
-    return nse, kge, pbias, accuracy_cat, desfase_dias, cat_obs, cat_pred
+    return nse, kge, pbias, accuracy_cat, error_fase_dias, cat_obs, cat_pred
 
 # ==========================================
 # 2. ARQUITECTURA DE LA RED NEURONAL
@@ -79,7 +78,11 @@ st.title("🌾 PREDWEEM: Análisis de Sincronía y Frecuencia")
 
 st.sidebar.header("⚙️ Parámetros de Calibración")
 umbral_h = st.sidebar.slider("Umbral Hídrico (mm)", 0, 60, 20)
-ventana_dias = st.sidebar.slider("Ventana de Tolerancia (Días)", 1, 14, 7)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Ajuste Biológico")
+desfase_conteo = st.sidebar.slider("Adelanto Biológico (Días)", 0, 14, 7, help="Días previos al conteo en los que se asume que ocurrió la emergencia real.")
+ventana_dias = st.sidebar.slider("Ventana de Tolerancia (Días ±)", 1, 14, 7, help="Margen de búsqueda alrededor de la fecha de emergencia estimada.")
 
 f_meteo = st.file_uploader("Subir meteo_daily.csv", type=['csv'])
 f_valida = st.file_uploader("Subir VALIDA.xlsx", type=['xlsx'])
@@ -107,29 +110,38 @@ if f_meteo and f_valida:
         df_clima.loc[df_clima['Prec_sum'] < umbral_h, 'EMERREL'] = 0.0
         df_clima.loc[df_clima['Julian_days'] <= 25, 'EMERREL'] = 0.0
 
-        # Sincronización para métricas
+        # Sincronización para métricas (MODIFICADA CON DESFASE)
         df_campo['ER_obs'] = df_campo['PLM2'] / df_campo['PLM2'].max()
         resultados = []
         radio = ventana_dias // 2
 
         for _, row in df_campo.iterrows():
-            mask = (df_clima['Fecha'] >= row['FECHA'] - pd.Timedelta(days=radio)) & \
-                   (df_clima['Fecha'] <= row['FECHA'] + pd.Timedelta(days=radio))
+            fecha_conteo = row['FECHA']
+            # Desplazamos la fecha hacia atrás según el slider
+            fecha_biologica = fecha_conteo - pd.Timedelta(days=desfase_conteo)
+            
+            mask = (df_clima['Fecha'] >= fecha_biologica - pd.Timedelta(days=radio)) & \
+                   (df_clima['Fecha'] <= fecha_biologica + pd.Timedelta(days=radio))
             max_p = df_clima.loc[mask, 'EMERREL'].max() if not df_clima[mask].empty else 0
-            resultados.append({'Fecha': row['FECHA'], 'Obs': row['ER_obs'], 'Pred': max_p})
+            
+            resultados.append({
+                'Fecha_Conteo': fecha_conteo, 
+                'Fecha': fecha_biologica, # Usamos la fecha biológica para alinear con el modelo
+                'Obs': row['ER_obs'], 
+                'Pred': max_p
+            })
 
         df_v = pd.DataFrame(resultados)
-        nse, kge, pbias, acc_cat, desfase, c_obs, c_pred = calcular_metricas_completas(df_v)
+        nse, kge, pbias, acc_cat, error_fase, c_obs, c_pred = calcular_metricas_completas(df_v)
 
         # Dashboard de Métricas
         st.divider()
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("KGE (Ajuste)", f"{kge:.2f}")
         m2.metric("NSE (Eficiencia)", f"{nse:.2f}")
-        m3.metric("Error de Fase", f"{desfase} días")
+        m3.metric("Error de Fase", f"{error_fase} días")
         m4.metric("Sesgo PBIAS", f"{pbias:.1f}%")
         m5.metric("Acierto Riesgo", f"{acc_cat:.1f}%")
-
         
         # --- Gráfico de Validación ---
         st.subheader("Comparativa: Dinámica Simulada vs Observaciones de Campo")
@@ -140,15 +152,20 @@ if f_meteo and f_valida:
         # Curva continua del modelo
         ax.plot(df_clima['Fecha'], df_clima['EMERREL'], color='#166534', lw=2, label='Modelo (Diario)')
         
-        # Puntos observados en campo
-        ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', s=60, zorder=5, label='Campo (Observado)')
+        # Visualización de la ventana de desfasaje (Línea punteada horizontal)
+        ax.hlines(y=df_v['Obs'], xmin=df_v['Fecha'], xmax=df_v['Fecha_Conteo'], 
+                  color='gray', linestyle=':', zorder=3, alpha=0.7)
         
+        # Puntos de conteo original (Más tenues)
+        ax.scatter(df_v['Fecha_Conteo'], df_v['Obs'], color='gray', s=30, alpha=0.5, zorder=4, label='Momento de Conteo')
+        
+        # Puntos biológicos ajustados
+        ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', s=60, zorder=5, label=f'Emergencia Estimada (-{desfase_conteo}d)')
               
         ax.set_ylabel("Tasa Relativa de Emergencia")
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=5, frameon=False)
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=6, frameon=False, fontsize='small')
         ax.grid(True, linestyle='--', alpha=0.5)
         st.pyplot(fig)
-
         
         # Análisis de Confusión
         with st.expander("📊 Matriz de Confusión: ¿Dónde falla el modelo?"):
@@ -157,7 +174,7 @@ if f_meteo and f_valida:
             fig_cm, ax_cm = plt.subplots(figsize=(5,4))
             sns.heatmap(cm, annot=True, fmt='d', xticklabels=labels, yticklabels=labels, cmap='YlGn', ax=ax_cm)
             ax_cm.set_xlabel('Predicción del Modelo')
-            ax_cm.set_ylabel('Realidad del Campo')
+            ax_cm.set_ylabel('Realidad del Campo (Ajustada)')
             st.pyplot(fig_cm)
             st.info("Esta matriz indica si el modelo tiende a dar falsas alarmas o si 'ignora' emergencias reales.")
 
