@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM LARTIGAU vK4.4", 
+    page_title="PREDWEEM TRES ARROYOS vK4.4", 
     layout="wide",
     page_icon="🌾"
 )
@@ -149,8 +149,8 @@ st.sidebar.markdown("## 📂 1. Datos del Lote")
 archivo_meteo = st.sidebar.file_uploader("1. Clima (Lartigau)", type=["xlsx", "csv"])
 archivo_campo = st.sidebar.file_uploader("2. Campo (Validación Lartigau)", type=["xlsx", "csv"])
 
-df_meteo_raw = load_data(archivo_meteo, "lartigau")
-df_campo_raw = load_data(archivo_campo, "lartigau_campo")
+df_meteo_raw = load_data(archivo_meteo, "TRES ARROYOS")
+df_campo_raw = load_data(archivo_campo, "TRES ARROYOS_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
@@ -164,8 +164,8 @@ with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico.")
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10, help="Grados-día a acumular desde el primer pico.")
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
