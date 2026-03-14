@@ -240,30 +240,35 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
     if df_campo is not None:
         
-        # 1. CORRECCIÓN DE SINCRONÍA (PEARSON): Integración por intervalos de monitoreo
-        sim_intervals = []
-        # Asumimos que la cuenta empieza a acumularse desde el inicio del dataset de clima
-        last_date = df['Fecha'].min() - pd.Timedelta(days=1)
-        
-        for idx, row in df_campo.iterrows():
-            current_date = row[col_fecha]
-            # Sumamos la emergencia diaria predicha entre la última visita y la visita actual
-            mask_intervalo = (df['Fecha'] > last_date) & (df['Fecha'] <= current_date)
-            suma_simulada = df.loc[mask_intervalo, 'EMERREL'].sum()
-            sim_intervals.append(suma_simulada)
-            last_date = current_date
-            
-        df_campo['Sim_Intervalo'] = sim_intervals
-        
-        # Pearson compara lo que nació en el campo vs lo que sumó el modelo en esos mismos lapsos
-        pearson_r = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
-        if pd.isna(pearson_r): pearson_r = 0.0
+    # --- VALIDACIÓN DUAL PEARSON ---
+    pearson_punto, pearson_intervalo = 0.0, 0.0
+    df_val_punto = pd.DataFrame()
 
-        pec, peak_lag, lead_time = 0, 0, 0
+    if archivo_campo is not None:
+        df_campo = pd.read_excel(archivo_campo) if archivo_campo.name.endswith('xlsx') else pd.read_csv(archivo_campo)
+        df_campo.columns = [c.upper().strip() for c in df_campo.columns]
+        col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
+        col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
+        df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
+        df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
+
+        # 1. Pearson Puntual (Sin intervalos)
+        df_val_punto = df_campo.merge(df[['Fecha', 'EMERREL']], left_on=col_fecha, right_on='Fecha', how='left')
+        df_val_punto['Obs_Norm'] = df_val_punto[col_plm2] / (df_val_punto[col_plm2].max() + 1e-6)
+        pearson_punto = df_val_punto['Obs_Norm'].corr(df_val_punto['EMERREL'])
+
+        # 2. Pearson por Intervalos
+        sim_intervals = []
+        last_date = df['Fecha'].min() - pd.Timedelta(days=1)
+        for _, row in df_campo.iterrows():
+            mask = (df['Fecha'] > last_date) & (df['Fecha'] <= row[col_fecha])
+            sim_intervals.append(df.loc[mask, 'EMERREL'].sum())
+            last_date = row[col_fecha]
         
-        if fecha_control:
-            malezas_totales_campo = df_campo[col_plm2].sum()
-            
+        df_campo['Sim_Intervalo'] = sim_intervals
+        pearson_intervalo = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
+        
+                   
             # CÁLCULO DE PEC: Proporción de plantas controladas HASTA EL DÍA DE CONTROL respecto al total
             malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
             pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
