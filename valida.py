@@ -270,7 +270,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         
                    
             # CÁLCULO DE PEC: Proporción de plantas controladas HASTA EL DÍA DE CONTROL respecto al total
-            malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
+                malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
             pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
             # Logística
