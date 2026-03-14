@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.6 — LOLIUM TRES ARROYOS 2026
-# Actualización: Validación con desfase temporal automático (±10 días)
+# 🌾 PREDWEEM INTEGRAL vK4.7 — LOLIUM TRES ARROYOS 2026
+# Actualización: Validación con Pearson + desfase temporal automático (±10 días)
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.6",
+    page_title="PREDWEEM TRES ARROYOS vK4.7",
     layout="wide",
     page_icon="🌾"
 )
@@ -153,12 +153,6 @@ def load_data(file_uploader, default_name):
     return None
 
 def build_shifted_interval_series(df_sim, df_campo, col_fecha, shift_days):
-    """
-    Integra la emergencia simulada por intervalos de monitoreo,
-    pero aplicando un desfase temporal a la simulación.
-    shift_days > 0: la simulación se corre hacia adelante
-    shift_days < 0: la simulación se corre hacia atrás
-    """
     sim_intervals = []
     last_date = df_sim["Fecha"].min() - pd.Timedelta(days=1)
 
@@ -180,19 +174,16 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
     """
     Busca el mejor desfase temporal entre -max_shift_days y +max_shift_days.
     Criterio:
-      1) mayor Pearson
-      2) menor WAPE en caso de empate
+      - mayor Pearson
+      - si empata, menor valor absoluto de shift
     """
     obs = df_campo[col_plm2].to_numpy(dtype=float)
 
     best = {
         "shift_days": 0,
         "pearson_r": -np.inf,
-        "wape": np.inf,
         "sim_intervalo": np.zeros(len(df_campo)),
     }
-
-    suma_obs = obs.sum()
 
     for shift in range(-max_shift_days, max_shift_days + 1):
         sim_vals = build_shifted_interval_series(df_sim, df_campo, col_fecha, shift)
@@ -201,22 +192,16 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
         if pd.isna(pearson_r):
             pearson_r = -1.0
 
-        if suma_obs > 0:
-            wape = (np.abs(obs - sim_vals).sum() / suma_obs) * 100
-        else:
-            wape = 0.0
-
         is_better = False
         if pearson_r > best["pearson_r"]:
             is_better = True
-        elif np.isclose(pearson_r, best["pearson_r"], atol=1e-9) and wape < best["wape"]:
+        elif np.isclose(pearson_r, best["pearson_r"], atol=1e-9) and abs(shift) < abs(best["shift_days"]):
             is_better = True
 
         if is_better:
             best = {
                 "shift_days": shift,
                 "pearson_r": float(pearson_r),
-                "wape": float(wape),
                 "sim_intervalo": sim_vals.copy(),
             }
 
@@ -360,7 +345,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
     pearson_r = 0.0
-    wape = 0.0
     best_shift_days = 0
     pec, peak_lag, lead_time = 0.0, 0, 0
 
@@ -375,7 +359,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
         best_shift_days = best_val["shift_days"]
         pearson_r = best_val["pearson_r"]
-        wape = best_val["wape"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
 
         if fecha_control:
@@ -445,23 +428,21 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 "<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>",
                 unsafe_allow_html=True
             )
-            k1, k2, k3, k4, k5, k6 = st.columns(6)
+            k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
             k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
-            k5.metric("WAPE", f"{wape:.1f}%", "Error de Magnitud")
-            k6.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
+            k5.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
             st.markdown("---")
         elif df_campo is not None:
             st.markdown(
                 "<p class='metric-header'>🚜 VALIDACIÓN DE MODELO CON DATOS DE CAMPO</p>",
                 unsafe_allow_html=True
             )
-            k1, k2, k3 = st.columns(3)
+            k1, k2 = st.columns(2)
             k1.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
-            k2.metric("WAPE", f"{wape:.1f}%", "Error de Magnitud")
-            k3.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
+            k2.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
@@ -669,7 +650,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     'Lag (días)',
                     'Lead Time (días)',
                     'Pearson (r)',
-                    'WAPE (%)',
                     'Shift óptimo (días)'
                 ],
                 'Valor': [
@@ -677,7 +657,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     peak_lag,
                     lead_time,
                     pearson_r,
-                    wape,
                     best_shift_days
                 ]
             }
@@ -686,7 +665,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Integral_Lartigau_vK4_6.xlsx"
+        "PREDWEEM_Integral_Lartigau_vK4_7.xlsx"
     )
 
 else:
