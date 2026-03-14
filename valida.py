@@ -241,7 +241,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     if df_campo is not None:
         
     # --- VALIDACIÓN DUAL PEARSON ---
-    pearson_punto, pearson_intervalo = 0.0, 0.0
+        pearson_punto, pearson_intervalo = 0.0, 0.0
     df_val_punto = pd.DataFrame()
 
     if archivo_campo is not None:
