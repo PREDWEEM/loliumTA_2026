@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM TRES ARROYOS 2026
-# Actualización: Sincronía (Pearson) + Error de Magnitud (WAPE)
+# 🌾 PREDWEEM INTEGRAL vK4.6 — LOLIUM TRES ARROYOS 2026
+# Actualización: Validación con desfase temporal automático (±10 días)
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.5",
+    page_title="PREDWEEM TRES ARROYOS vK4.6",
     layout="wide",
     page_icon="🌾"
 )
@@ -152,6 +152,79 @@ def load_data(file_uploader, default_name):
         return pd.read_excel(BASE / f"{default_name}.xlsx")
     return None
 
+def build_shifted_interval_series(df_sim, df_campo, col_fecha, shift_days):
+    """
+    Integra la emergencia simulada por intervalos de monitoreo,
+    pero aplicando un desfase temporal a la simulación.
+    shift_days > 0: la simulación se corre hacia adelante
+    shift_days < 0: la simulación se corre hacia atrás
+    """
+    sim_intervals = []
+    last_date = df_sim["Fecha"].min() - pd.Timedelta(days=1)
+
+    for _, row in df_campo.iterrows():
+        current_date = row[col_fecha]
+
+        start_shifted = last_date + pd.Timedelta(days=shift_days)
+        end_shifted = current_date + pd.Timedelta(days=shift_days)
+
+        mask_intervalo = (df_sim["Fecha"] > start_shifted) & (df_sim["Fecha"] <= end_shifted)
+        suma_simulada = df_sim.loc[mask_intervalo, "EMERREL"].sum()
+        sim_intervals.append(suma_simulada)
+
+        last_date = current_date
+
+    return np.array(sim_intervals, dtype=float)
+
+def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift_days=10):
+    """
+    Busca el mejor desfase temporal entre -max_shift_days y +max_shift_days.
+    Criterio:
+      1) mayor Pearson
+      2) menor WAPE en caso de empate
+    """
+    obs = df_campo[col_plm2].to_numpy(dtype=float)
+
+    best = {
+        "shift_days": 0,
+        "pearson_r": -np.inf,
+        "wape": np.inf,
+        "sim_intervalo": np.zeros(len(df_campo)),
+    }
+
+    suma_obs = obs.sum()
+
+    for shift in range(-max_shift_days, max_shift_days + 1):
+        sim_vals = build_shifted_interval_series(df_sim, df_campo, col_fecha, shift)
+
+        pearson_r = pd.Series(obs).corr(pd.Series(sim_vals))
+        if pd.isna(pearson_r):
+            pearson_r = -1.0
+
+        if suma_obs > 0:
+            wape = (np.abs(obs - sim_vals).sum() / suma_obs) * 100
+        else:
+            wape = 0.0
+
+        is_better = False
+        if pearson_r > best["pearson_r"]:
+            is_better = True
+        elif np.isclose(pearson_r, best["pearson_r"], atol=1e-9) and wape < best["wape"]:
+            is_better = True
+
+        if is_better:
+            best = {
+                "shift_days": shift,
+                "pearson_r": float(pearson_r),
+                "wape": float(wape),
+                "sim_intervalo": sim_vals.copy(),
+            }
+
+    if best["pearson_r"] == -np.inf:
+        best["pearson_r"] = 0.0
+
+    return best
+
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
@@ -189,6 +262,15 @@ dga_optimo = st.sidebar.number_input(
     help="Grados-día a acumular desde el primer pico."
 )
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
+
+st.sidebar.markdown("## 🧪 3. Validación")
+max_desfase_validacion = st.sidebar.slider(
+    "Desfase máximo admisible (días)",
+    min_value=0,
+    max_value=10,
+    value=10,
+    help="Permite buscar automáticamente el mejor corrimiento temporal entre simulación y campo."
+)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
@@ -231,12 +313,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # --- RESTRICCIÓN HÍDRICA (LÓGICA ORIGINAL) ---
+    # --- RESTRICCIÓN HÍDRICA ---
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # Ajuste robusto del bloqueo temprano
     df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
@@ -269,7 +350,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
         ].sum()
 
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
-
         if idx_hoy + 8 <= len(df):
             dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum()
         else:
@@ -281,35 +361,23 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
     pearson_r = 0.0
     wape = 0.0
+    best_shift_days = 0
     pec, peak_lag, lead_time = 0.0, 0, 0
 
     if df_campo is not None:
+        best_val = evaluate_shifted_validation(
+            df_sim=df,
+            df_campo=df_campo,
+            col_fecha=col_fecha,
+            col_plm2=col_plm2,
+            max_shift_days=max_desfase_validacion
+        )
 
-        # 1. SINCRONÍA (PEARSON): integración por intervalos de monitoreo
-        sim_intervals = []
-        last_date = df['Fecha'].min() - pd.Timedelta(days=1)
+        best_shift_days = best_val["shift_days"]
+        pearson_r = best_val["pearson_r"]
+        wape = best_val["wape"]
+        df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
 
-        for _, row in df_campo.iterrows():
-            current_date = row[col_fecha]
-            mask_intervalo = (df['Fecha'] > last_date) & (df['Fecha'] <= current_date)
-            suma_simulada = df.loc[mask_intervalo, 'EMERREL'].sum()
-            sim_intervals.append(suma_simulada)
-            last_date = current_date
-
-        df_campo['Sim_Intervalo'] = sim_intervals
-
-        pearson_r = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
-        if pd.isna(pearson_r):
-            pearson_r = 0.0
-
-        # 2. ERROR DE MAGNITUD (WAPE)
-        suma_obs = df_campo[col_plm2].sum()
-        if suma_obs > 0:
-            wape = (np.abs(df_campo[col_plm2] - df_campo['Sim_Intervalo']).sum() / suma_obs) * 100
-        else:
-            wape = 0.0
-
-        # 3. MÉTRICAS OPERATIVAS
         if fecha_control:
             malezas_totales_campo = df_campo[col_plm2].sum()
 
@@ -377,21 +445,23 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 "<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>",
                 unsafe_allow_html=True
             )
-            k1, k2, k3, k4, k5 = st.columns(5)
+            k1, k2, k3, k4, k5, k6 = st.columns(6)
             k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
             k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
             k5.metric("WAPE", f"{wape:.1f}%", "Error de Magnitud")
+            k6.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
             st.markdown("---")
         elif df_campo is not None:
             st.markdown(
                 "<p class='metric-header'>🚜 VALIDACIÓN DE MODELO CON DATOS DE CAMPO</p>",
                 unsafe_allow_html=True
             )
-            k1, k2 = st.columns(2)
+            k1, k2, k3 = st.columns(3)
             k1.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
             k2.metric("WAPE", f"{wape:.1f}%", "Error de Magnitud")
+            k3.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
@@ -599,14 +669,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     'Lag (días)',
                     'Lead Time (días)',
                     'Pearson (r)',
-                    'WAPE (%)'
+                    'WAPE (%)',
+                    'Shift óptimo (días)'
                 ],
                 'Valor': [
                     pec,
                     peak_lag,
                     lead_time,
                     pearson_r,
-                    wape
+                    wape,
+                    best_shift_days
                 ]
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
@@ -614,7 +686,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Integral_Lartigau_vK4_5.xlsx"
+        "PREDWEEM_Integral_Lartigau_vK4_6.xlsx"
     )
 
 else:
