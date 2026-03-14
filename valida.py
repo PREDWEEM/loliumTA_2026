@@ -1,13 +1,15 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM TRES ARROYOS 2026
-# Versión Final Corregida: Soporte KGE y Estabilidad de Dimensiones
+# Actualización: Dual Pearson (Puntual vs Intervalos) + Scatter Plot
 # ===============================================================
 
 import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import pickle
 import io
 from datetime import timedelta
@@ -23,14 +25,14 @@ st.markdown("""
     .main { background-color: #f8fafc; }
     [data-testid="stSidebar"] { background-color: #dcfce7; border-right: 1px solid #bbf7d0; }
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
-    .metric-header { color: #1e293b; font-weight: bold; margin-top: 10px; }
+    .metric-header { color: #1e293b; font-weight: bold; margin-bottom: -10px; }
 </style>
 """, unsafe_allow_html=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
 # ---------------------------------------------------------
-# 2. MOCKS DE SEGURIDAD (Si faltan archivos .npy/.pkl)
+# 2. MOCKS Y FUNCIONES TÉCNICAS
 # ---------------------------------------------------------
 def create_mock_files_if_missing():
     if not (BASE / "IW.npy").exists():
@@ -46,9 +48,12 @@ def create_mock_files_if_missing():
 
 create_mock_files_if_missing()
 
-# ---------------------------------------------------------
-# 3. CLASES Y MÉTODOS TÉCNICOS
-# ---------------------------------------------------------
+def calculate_tt_scalar(t, t_base, t_opt, t_crit):
+    if t <= t_base: return 0.0
+    elif t <= t_opt: return t - t_base
+    elif t < t_crit: return (t - t_base) * ((t_crit - t) / (t_crit - t_opt))
+    return 0.0
+
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
         self.IW, self.bIW, self.LW, self.bLW = IW, bIW, LW, bLW
@@ -59,7 +64,6 @@ class PracticalANNModel:
         return 2 * (X - self.input_min) / (self.input_max - self.input_min) - 1
 
     def predict(self, Xreal):
-        # Aseguramos que Xreal sea float y 2D
         Xn = self.normalize(Xreal)
         emer = []
         for x in Xn:
@@ -67,24 +71,7 @@ class PracticalANNModel:
             a1 = np.tanh(z1)
             z2 = self.LW @ a1 + self.bLW
             emer.append(np.tanh(z2))
-        # Retornamos vector 1D exacto para Pandas
         return (np.array(emer).flatten() + 1) / 2
-
-def calculate_kge(sim, obs):
-    if len(obs) < 2 or np.all(obs == 0): return 0.0
-    r = np.corrcoef(sim, obs)[0, 1]
-    if np.isnan(r): r = 0.0
-    beta = np.mean(sim) / (np.mean(obs) + 1e-6)
-    cv_sim = np.std(sim) / (np.mean(sim) + 1e-6)
-    cv_obs = np.std(obs) / (np.mean(obs) + 1e-6)
-    gamma = cv_sim / (cv_obs + 1e-6)
-    return 1 - np.sqrt((r - 1)**2 + (beta - 1)**2 + (gamma - 1)**2)
-
-def calculate_tt_scalar(t, t_base, t_opt, t_crit):
-    if t <= t_base: return 0.0
-    elif t <= t_opt: return t - t_base
-    elif t < t_crit: return (t - t_base) * ((t_crit - t) / (t_crit - t_opt))
-    return 0.0
 
 @st.cache_resource
 def load_models():
@@ -96,56 +83,38 @@ def load_models():
     except: return None, None
 
 # ---------------------------------------------------------
-# 4. SIDEBAR Y CARGA
+# 3. INTERFAZ Y PROCESAMIENTO
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.sidebar.markdown("## 📂 Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("1. Clima (Excel/CSV)", type=["xlsx", "csv"])
-archivo_campo = st.sidebar.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
+st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png", use_container_width=True)
+archivo_meteo = st.sidebar.file_uploader("1. Clima", type=["xlsx", "csv"])
+archivo_campo = st.sidebar.file_uploader("2. Campo", type=["xlsx", "csv"])
 
-# Parámetros Fisiológicos
-st.sidebar.divider()
 umbral_er = st.sidebar.slider("Umbral Alerta", 0.05, 0.80, 0.15)
 dga_optimo = st.sidebar.number_input("TT Control (°Cd)", value=600)
-t_base_val = st.sidebar.number_input("T Base", value=2.0)
-t_opt_max = st.sidebar.number_input("T Optima", value=20.0)
-t_critica = st.sidebar.slider("T Critica", 26.0, 42.0, 30.0)
 
-# ---------------------------------------------------------
-# 5. PROCESAMIENTO PRINCIPAL (CORRECCIÓN DIMENSIONES)
-# ---------------------------------------------------------
 if archivo_meteo is not None and modelo_ann is not None:
-    # Carga y limpieza estricta
+    # Procesamiento Clima
     df = pd.read_excel(archivo_meteo) if archivo_meteo.name.endswith('xlsx') else pd.read_csv(archivo_meteo)
     df.columns = [c.upper().strip() for c in df.columns]
-    df = df.rename(columns={'FECHA': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
+    df = df.rename(columns={'FECHA': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec'})
     df['Fecha'] = pd.to_datetime(df['Fecha'])
-    
-    # ELIMINACIÓN DE NA Y RESET DE ÍNDICE (Clave para evitar el ValueError)
     df = df.dropna(subset=["TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # Construcción de X y Predicción
+    # Predicción
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].values.astype(float)
-    y_pred = modelo_ann.predict(X)
+    df["EMERREL"] = np.maximum(modelo_ann.predict(X), 0.0)
     
-    # Asignación segura
-    df["EMERREL"] = np.maximum(y_pred, 0.0)
-    
-    # Factores adicionales
-    df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
-    df["EMERREL"] *= df["Hydric_Factor"]
-    
-    # Cálculo Térmico
+    # Bio-Térmico
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
-    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
+    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, 2.0, 20.0, 30.0))
 
-    # --- VALIDACIÓN DE CAMPO ---
-    kge_score, pearson_r, pec = 0.0, 0.0, 0.0
-    fecha_control = None
-    
+    # --- VALIDACIÓN DUAL PEARSON ---
+    pearson_punto, pearson_intervalo = 0.0, 0.0
+    df_val_punto = pd.DataFrame()
+
     if archivo_campo is not None:
         df_campo = pd.read_excel(archivo_campo) if archivo_campo.name.endswith('xlsx') else pd.read_csv(archivo_campo)
         df_campo.columns = [c.upper().strip() for c in df_campo.columns]
@@ -153,8 +122,13 @@ if archivo_meteo is not None and modelo_ann is not None:
         col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
         df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
-        
-        # Sincronía por intervalos
+
+        # 1. Pearson Puntual (Sin intervalos)
+        df_val_punto = df_campo.merge(df[['Fecha', 'EMERREL']], left_on=col_fecha, right_on='Fecha', how='left')
+        df_val_punto['Obs_Norm'] = df_val_punto[col_plm2] / (df_val_punto[col_plm2].max() + 1e-6)
+        pearson_punto = df_val_punto['Obs_Norm'].corr(df_val_punto['EMERREL'])
+
+        # 2. Pearson por Intervalos
         sim_intervals = []
         last_date = df['Fecha'].min() - pd.Timedelta(days=1)
         for _, row in df_campo.iterrows():
@@ -163,54 +137,56 @@ if archivo_meteo is not None and modelo_ann is not None:
             last_date = row[col_fecha]
         
         df_campo['Sim_Intervalo'] = sim_intervals
-        
-        # MÉTRICAS
-        pearson_r = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
-        kge_score = calculate_kge(df_campo['Sim_Intervalo'].values, df_campo[col_plm2].values)
-
-        # Cálculo de Momento de Control
-        indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
-        if indices_pulso:
-            f_ini = df.loc[indices_pulso[0], "Fecha"]
-            df_v = df[df["Fecha"] >= f_ini].copy()
-            df_v["DGA_cum"] = df_v["DG"].cumsum()
-            df_target = df_v[df_v["DGA_cum"] >= dga_optimo]
-            if not df_target.empty:
-                fecha_control = df_target.iloc[0]["Fecha"]
-                m_total = df_campo[col_plm2].sum()
-                m_ctrl = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
-                pec = (m_ctrl / m_total * 100) if m_total > 0 else 0
+        pearson_intervalo = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
 
     # -----------------------------------------------------
-    # 6. FRONT-END
+    # 4. FRONT-END
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
     
-    if archivo_campo is not None:
-        st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE PRECISIÓN (KGE)</p>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("KGE Score (Eficiencia)", f"{kge_score:.3f}", "Ajuste Sim vs Obs")
-        c2.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "Plantas bajo ventana")
-        c3.metric("Pearson (r)", f"{pearson_r:.2f}", "Sincronía Temporal")
-        st.divider()
+    tab1, tab2, tab3 = st.tabs(["📊 MONITOR", "🔍 CALIDAD DE AJUSTE", "🧪 BIO-LAB"])
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], name="Simulación", fill='tozeroy', line=dict(color='green')))
-    if archivo_campo is not None:
-        norm_campo = df_campo[col_plm2] / (df_campo[col_plm2].max() + 1e-6)
-        fig.add_trace(go.Scatter(x=df_campo[col_fecha], y=norm_campo, name="Campo (Normalizado)", mode='markers+lines', marker=dict(color='red')))
-    
-    if fecha_control:
-        fig.add_vline(x=fecha_control.timestamp()*1000, line_dash="dash", line_color="orange", annotation_text="Momento Control")
+    with tab1:
+        if archivo_campo is not None:
+            st.markdown("<p class='metric-header'>🚜 SINCRONÍA DE CAMPO</p>", unsafe_allow_html=True)
+            m1, m2 = st.columns(2)
+            m1.metric("Pearson (Puntual)", f"{pearson_punto:.3f}", "Sensibilidad a la intensidad")
+            m2.metric("Pearson (Intervalo)", f"{pearson_intervalo:.3f}", "Sincronía de flujos")
+        
+        fig_main = go.Figure()
+        fig_main.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], name="Modelo", fill='tozeroy', line=dict(color='green')))
+        if archivo_campo is not None:
+            fig_main.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo[col_plm2]/df_campo[col_plm2].max(), name="Campo", mode='markers'))
+        st.plotly_chart(fig_main, use_container_width=True)
 
-    fig.update_layout(title="Dinámica de Emergencia", height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    with tab2:
+        if not df_val_punto.empty:
+            st.header("📈 Análisis de Correlación Puntual")
+            col_a, col_b = st.columns([1, 2])
+            with col_a:
+                st.write("""
+                **Interpretación:**
+                Este gráfico compara la emergencia observada vs. la simulada en la misma fecha. 
+                - La **línea punteada** es el ajuste ideal (1:1).
+                - Si los puntos están por encima, el modelo subestima.
+                - Si están por debajo, el modelo sobreestima.
+                """)
+                st.metric("Coeficiente R", f"{pearson_punto:.4f}")
+            
+            with col_b:
+                fig_scatter = px.scatter(
+                    df_val_punto, x="Obs_Norm", y="EMERREL", 
+                    labels={"Obs_Norm": "Observado (Normalizado)", "EMERREL": "Simulado (Tasa)"},
+                    hover_data=[col_fecha], trendline="ols", template="plotly_white"
+                )
+                # Añadir línea 1:1
+                fig_scatter.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(color="Red", dash="dash"))
+                st.plotly_chart(fig_scatter, use_container_width=True)
+        else:
+            st.info("Suba datos de campo para ver el análisis de dispersión.")
 
-    # Exportación
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Simulacion')
-    st.sidebar.download_button("📥 Reporte Excel", output.getvalue(), "PREDWEEM_Lartigau.xlsx")
+    with tab3:
+        st.write("Configuración de curvas de respuesta térmica...")
 
 else:
-    st.info("👋 Por favor, cargue un archivo de clima para iniciar la simulación.")
+    st.info("👋 Cargue archivos para comenzar.")
