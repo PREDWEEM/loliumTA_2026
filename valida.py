@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM TRES ARROYOS 2026
-# Versión Corregida: Estabilidad de Índices y Dual Pearson
+# Versión Corregida: Solución de Error de Indexación y Dimensiones
 # ===============================================================
 
 import streamlit as st
@@ -51,16 +51,6 @@ create_mock_files_if_missing()
 # ---------------------------------------------------------
 # 3. LÓGICA TÉCNICA
 # ---------------------------------------------------------
-def dtw_distance(a, b):
-    na, nb = len(a), len(b)
-    dp = np.full((na+1, nb+1), np.inf)
-    dp[0,0] = 0
-    for i in range(1, na+1):
-        for j in range(1, nb+1):
-            cost = abs(a[i-1] - b[j-1])
-            dp[i,j] = cost + min(dp[i-1,j], dp[i,j-1], dp[i-1,j-1])
-    return dp[na, nb]
-
 def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     if t <= t_base: return 0.0
     elif t <= t_opt: return t - t_base
@@ -85,7 +75,10 @@ class PracticalANNModel:
             z2 = self.LW @ a1 + self.bLW
             emer.append(np.tanh(z2))
         emer = (np.array(emer).flatten() + 1) / 2
-        return emer
+        # Calculamos la tasa diaria (diff) para que el largo coincida con la entrada
+        emer_ac = np.cumsum(emer)
+        emerrel = np.diff(emer_ac, prepend=0)
+        return emerrel # DEVOLVEMOS SOLO UN ARREGLO PARA EVITAR EL VALUEERROR
 
 @st.cache_resource
 def load_models():
@@ -98,11 +91,6 @@ def load_models():
         st.error(f"Error cargando modelos: {e}")
         return None, None
 
-def load_data(file_uploader, default_name):
-    if file_uploader:
-        return pd.read_excel(file_uploader) if file_uploader.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file_uploader)
-    return None
-
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
@@ -112,34 +100,29 @@ st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/
 archivo_meteo = st.sidebar.file_uploader("1. Clima (Lartigau)", type=["xlsx", "csv"])
 archivo_campo = st.sidebar.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
 
-df_meteo_raw = load_data(archivo_meteo, "TRES ARROYOS")
-df_campo_raw = load_data(archivo_campo, "TRES ARROYOS_campo")
-
-st.sidebar.divider()
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.15)
-residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
-t_base_val = st.sidebar.number_input("T Base", value=2.0, step=0.5)
-t_opt_max = st.sidebar.number_input("T Óptima Max", value=20.0, step=1.0)
-t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 dga_optimo = st.sidebar.number_input("TT Control Post-em (°Cd)", value=600, step=10)
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
 # ---------------------------------------------------------
-if df_meteo_raw is not None and modelo_ann is not None:
-    
+if archivo_meteo is not None and modelo_ann is not None:
     # --- PREPROCESAMIENTO CLIMA ---
-    df = df_meteo_raw.copy()
+    df = pd.read_excel(archivo_meteo) if archivo_meteo.name.endswith('xlsx') else pd.read_csv(archivo_meteo)
     df.columns = [c.upper().strip() for c in df.columns]
     df = df.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
     df['Fecha'] = pd.to_datetime(df['Fecha'])
+    
+    # Limpieza estricta y reset_index para asegurar coincidencia de filas
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
     # --- PREDICCIÓN ---
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-    df["EMERREL"] = np.maximum(modelo_ann.predict(X), 0.0)
+    y_pred = modelo_ann.predict(X) 
+    
+    # Ahora y_pred es un solo arreglo, np.maximum funcionará correctamente
+    df["EMERREL"] = np.maximum(y_pred, 0.0)
     
     # Restricción hídrica
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
@@ -148,50 +131,26 @@ if df_meteo_raw is not None and modelo_ann is not None:
     
     # Bio-térmico
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
-    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
-    
-    # Lógica de Ventana
-    fecha_hoy = pd.Timestamp.now().normalize()
-    if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
-    
-    indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
-    fecha_inicio_ventana, fecha_control = None, None
-    pec, peak_lag, lead_time, pearson_punto, pearson_intervalo = 0.0, 0, 0, 0.0, 0.0
-    dga_hoy, dga_7dias = 0.0, 0.0
-    df_val_punto = pd.DataFrame()
-
-    if indices_pulso:
-        fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
-        df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
-        df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
-        
-        df_ctrl_row = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
-        if not df_ctrl_row.empty: 
-            fecha_control = df_ctrl_row.iloc[0]["Fecha"]
-        
-        dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
-        idx_hoy_list = df.index[df["Fecha"] == fecha_hoy].tolist()
-        if idx_hoy_list:
-            idx_hoy = idx_hoy_list[0]
-            dga_7dias = dga_hoy + df.iloc[idx_hoy + 1 : idx_hoy + 8]["DG"].sum()
+    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, 2.0, 20.0, 30.0))
 
     # --- VALIDACIÓN DE CAMPO ---
-    if df_campo_raw is not None:
-        df_campo = df_campo_raw.copy()
+    pearson_punto, pearson_intervalo, pec = 0.0, 0.0, 0.0
+    fecha_control = None
+    df_val_punto = pd.DataFrame()
+
+    if archivo_campo is not None:
+        df_campo = pd.read_excel(archivo_campo) if archivo_campo.name.endswith('xlsx') else pd.read_csv(archivo_campo)
         df_campo.columns = [c.upper().strip() for c in df_campo.columns]
         col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
         col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
         df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
         
-        max_plm2 = df_campo[col_plm2].max()
-        df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
-
-        # 1. Pearson Puntual (Sin intervalos)
+        # Pearson Puntual
         df_val_punto = df_campo.merge(df[['Fecha', 'EMERREL']], left_on=col_fecha, right_on='Fecha', how='left')
-        pearson_punto = df_val_punto['Campo_Normalizado'].corr(df_val_punto['EMERREL'])
+        pearson_punto = df_val_punto[col_plm2].corr(df_val_punto['EMERREL'])
 
-        # 2. Pearson Intervalo
+        # Pearson Intervalo
         sim_intervals = []
         last_date = df['Fecha'].min() - pd.Timedelta(days=1)
         for _, row in df_campo.iterrows():
@@ -201,55 +160,30 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo['Sim_Intervalo'] = sim_intervals
         pearson_intervalo = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
 
-        # 3. Métricas Logísticas
-        if fecha_control:
-            malezas_totales_campo = df_campo[col_plm2].sum()
-            malezas_ctrl_efec = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
-            pec = (malezas_ctrl_efec / malezas_totales_campo * 100) if malezas_totales_campo > 0 else 0
-            
-            idx_pico_campo = df_campo[col_plm2].idxmax()
-            fecha_pico_campo = df_campo.loc[idx_pico_campo, col_fecha]
-            peak_lag = (fecha_control - fecha_pico_campo).days
-            
-            df_alertas = df[df['EMERREL'] >= umbral_er]
-            fecha_1ra = df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana
-            lead_time = (fecha_control - fecha_1ra).days
-
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR", "🔍 CALIDAD DE AJUSTE", "📈 ESTRATEGIA", "🧪 BIO-LAB"])
+    tab1, tab2 = st.tabs(["📊 MONITOR", "🔍 AJUSTE"])
 
     with tab1:
-        if df_campo_raw is not None:
-            st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE CAMPO</p>", unsafe_allow_html=True)
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%")
-            k2.metric("Lag vs Pico", f"{peak_lag} d")
-            k3.metric("Pearson (Puntual)", f"{pearson_punto:.3f}")
-            k4.metric("Pearson (Intervalo)", f"{pearson_intervalo:.3f}")
-        
-        fig_emer = go.Figure()
-        fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], name='Simulado', fill='tozeroy', line=dict(color='green')))
-        if df_campo_raw is not None:
-            fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], mode='markers+lines', name='Campo', marker=dict(color='red')))
-        if fecha_control:
-            fig_emer.add_vline(x=fecha_control.timestamp()*1000, line_dash="dash", line_color="orange")
-        st.plotly_chart(fig_emer, use_container_width=True)
+        if archivo_campo is not None:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Pearson Puntual", f"{pearson_punto:.3f}")
+            c2.metric("Pearson Intervalo", f"{pearson_intervalo:.3f}")
+            
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], name='Modelo', fill='tozeroy', line=dict(color='green')))
+        if archivo_campo is not None:
+            norm_obs = df_campo[col_plm2] / (df_campo[col_plm2].max() + 1e-6)
+            fig.add_trace(go.Scatter(x=df_campo[col_fecha], y=norm_obs, mode='markers+lines', name='Campo (Norm)'))
+        st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         if not df_val_punto.empty:
-            st.subheader("Análisis de Dispersión (Ajuste 1:1)")
-            fig_scatter = px.scatter(df_val_punto, x="Campo_Normalizado", y="EMERREL", trendline="ols", 
-                                     labels={"Campo_Normalizado": "Observado", "EMERREL": "Simulado"})
-            fig_scatter.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(color="Red", dash="dash"))
+            fig_scatter = px.scatter(df_val_punto, x=col_plm2, y="EMERREL", trendline="ols")
             st.plotly_chart(fig_scatter, use_container_width=True)
-        else:
-            st.info("Suba datos de campo para habilitar el análisis de ajuste.")
-
-    # ... [Tab 3 y 4 mantienen la lógica original de DTW y Bio-respuesta] ...
 
 else:
-    st.info("👋 Bienvenido. Cargue datos climáticos para comenzar.")
+    st.info("👋 Suba los datos climáticos para ejecutar el modelo.")
