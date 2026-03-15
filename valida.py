@@ -392,7 +392,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # --- RESTRICCIÓN HÍDRICA ---
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 30)))
+    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 20)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
     df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
