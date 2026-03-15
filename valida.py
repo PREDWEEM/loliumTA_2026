@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.7 — LOLIUM TRES ARROYOS 2026
-# Actualización: Validación con Pearson + desfase temporal automático (±10 días)
+# 🌾 PREDWEEM INTEGRAL vK4.9.5 — LOLIUM TRES ARROYOS 2026
+# Actualización:
+# - Pearson por intervalos de monitoreo
+# - Corrección de Detección de picos en los bordes (Padding)
+# - Emparejamiento robusto "Best-Match-First"
+# - Cálculo de Desfase Global Poblacional (T50)
+# - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
+# - Filtro estricto para omitir picos simulados < 0.4
+# - Recorte de evaluación de Falsos Positivos post-monitoreo
 # ===============================================================
 
 import streamlit as st
@@ -12,12 +19,13 @@ import pickle
 import io
 from datetime import timedelta
 from pathlib import Path
+from scipy.signal import find_peaks
 
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.7",
+    page_title="PREDWEEM TRES ARROYOS vK4.9.5",
     layout="wide",
     page_icon="🌾"
 )
@@ -158,36 +166,22 @@ def build_shifted_interval_series(df_sim, df_campo, col_fecha, shift_days):
 
     for _, row in df_campo.iterrows():
         current_date = row[col_fecha]
-
         start_shifted = last_date + pd.Timedelta(days=shift_days)
         end_shifted = current_date + pd.Timedelta(days=shift_days)
 
         mask_intervalo = (df_sim["Fecha"] > start_shifted) & (df_sim["Fecha"] <= end_shifted)
         suma_simulada = df_sim.loc[mask_intervalo, "EMERREL"].sum()
         sim_intervals.append(suma_simulada)
-
         last_date = current_date
 
     return np.array(sim_intervals, dtype=float)
 
 def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift_days=10):
-    """
-    Busca el mejor desfase temporal entre -max_shift_days y +max_shift_days.
-    Criterio:
-      - mayor Pearson
-      - si empata, menor valor absoluto de shift
-    """
     obs = df_campo[col_plm2].to_numpy(dtype=float)
-
-    best = {
-        "shift_days": 0,
-        "pearson_r": -np.inf,
-        "sim_intervalo": np.zeros(len(df_campo)),
-    }
+    best = {"shift_days": 0, "pearson_r": -np.inf, "sim_intervalo": np.zeros(len(df_campo))}
 
     for shift in range(-max_shift_days, max_shift_days + 1):
         sim_vals = build_shifted_interval_series(df_sim, df_campo, col_fecha, shift)
-
         pearson_r = pd.Series(obs).corr(pd.Series(sim_vals))
         if pd.isna(pearson_r):
             pearson_r = -1.0
@@ -199,16 +193,103 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
             is_better = True
 
         if is_better:
-            best = {
-                "shift_days": shift,
-                "pearson_r": float(pearson_r),
-                "sim_intervalo": sim_vals.copy(),
-            }
+            best = {"shift_days": shift, "pearson_r": float(pearson_r), "sim_intervalo": sim_vals.copy()}
 
     if best["pearson_r"] == -np.inf:
         best["pearson_r"] = 0.0
 
     return best
+
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
+    """
+    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First".
+    Retorna métricas de cohortes y el Sesgo Medio de Picos (mean_offset).
+    Solo evalúa Falsos Positivos dentro del período con datos de campo.
+    """
+    sim_dates = df_sim['Fecha'].values
+    sim_vals = df_sim['EMERREL'].values
+    obs_dates = df_campo[col_fecha].values
+    obs_vals = df_campo[col_plm2].values
+    obs_vals_norm = df_campo['Campo_Normalizado'].values
+    
+    max_obs_date = pd.to_datetime(obs_dates.max())
+    
+    # --- PADDING ---
+    sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
+    obs_vals_padded = np.pad(obs_vals, (1, 1), 'constant', constant_values=(0, 0))
+
+    min_h_sim = umbral_min_pico
+    min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
+
+    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=min_dist_picos)
+    peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
+    
+    peaks_sim = peaks_sim_padded - 1
+    peaks_obs = peaks_obs_padded - 1
+    
+    peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
+    peaks_obs = peaks_obs[(peaks_obs >= 0) & (peaks_obs < len(obs_vals))]
+
+    sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
+    obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
+    
+    # --- BEST-MATCH-FIRST ---
+    valid_pairs = []
+    for i, sim_date in enumerate(sim_peak_dates):
+        for j, obs_date in enumerate(obs_peak_dates):
+            days_diff = (obs_date - sim_date).days
+            if -tol_retraso <= days_diff <= tol_anticipo:
+                valid_pairs.append((i, j, days_diff, abs(days_diff)))
+                
+    valid_pairs.sort(key=lambda x: x[3])
+    
+    tp_points = []
+    fp_points = []
+    fn_points = []
+    matched_sim = set()
+    matched_obs = set()
+    offsets = []
+    
+    for sim_idx, obs_idx, diff, abs_diff in valid_pairs:
+        if sim_idx not in matched_sim and obs_idx not in matched_obs:
+            matched_sim.add(sim_idx)
+            matched_obs.add(obs_idx)
+            tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
+            
+            # Offset: Sim - Obs. Negativo = Anticipo, Positivo = Atraso
+            offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
+            offsets.append(offset_val)
+            
+    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos) ---
+    for i in range(len(sim_peak_dates)):
+        if i not in matched_sim:
+            if sim_peak_dates[i] <= max_obs_date:
+                fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
+            
+    # --- CÁLCULO DE FALSOS NEGATIVOS (Omisiones) ---
+    for j in range(len(obs_peak_dates)):
+        if j not in matched_obs:
+            fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
+            
+    tp = len(tp_points)
+    fp = len(fp_points)
+    fn = len(fn_points)
+    
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    mean_offset = np.mean(offsets) if offsets else 0.0
+    
+    return {
+        "f1_score": f1,
+        "precision": precision,
+        "recall": recall,
+        "tp": tp, "fp": fp, "fn": fn,
+        "mean_offset": mean_offset,
+        "tp_points": tp_points,
+        "fp_points": fp_points,
+        "fn_points": fn_points
+    }
 
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
@@ -220,8 +301,8 @@ st.sidebar.image(
     use_container_width=True
 )
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("1. Clima (Lartigau)", type=["xlsx", "csv"])
-archivo_campo = st.sidebar.file_uploader("2. Campo (Validación Lartigau)", type=["xlsx", "csv"])
+archivo_meteo = st.sidebar.file_uploader("1. Clima (Tres Arroyos)", type=["xlsx", "csv"])
+archivo_campo = st.sidebar.file_uploader("2. Campo (Validación TA)", type=["xlsx", "csv"])
 
 df_meteo_raw = load_data(archivo_meteo, "TRES ARROYOS")
 df_campo_raw = load_data(archivo_campo, "TRES ARROYOS_campo")
@@ -250,12 +331,23 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.markdown("## 🧪 3. Validación")
 max_desfase_validacion = st.sidebar.slider(
-    "Desfase máximo admisible (días)",
-    min_value=0,
-    max_value=10,
-    value=10,
-    help="Permite buscar automáticamente el mejor corrimiento temporal entre simulación y campo."
+    "Desfase máximo admisible Pearson (días)",
+    min_value=0, max_value=10, value=10,
+    help="Desfase general de la curva para el cálculo de Pearson."
 )
+
+st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
+col_v1, col_v2 = st.sidebar.columns(2)
+with col_v1:
+    tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1)
+with col_v2:
+    tol_retraso = st.number_input("Retraso (-)", value=2, step=1)
+
+col_p1, col_p2 = st.sidebar.columns(2)
+with col_p1:
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=14, step=1)
+with col_p2:
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.40, step=0.05)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
@@ -293,7 +385,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    # --- PREDICCIÓN NEURAL ORIGINAL (SIN SHIFT) ---
+    # --- PREDICCIÓN NEURAL ORIGINAL ---
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
@@ -318,7 +410,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     dga_hoy, dga_7dias = 0.0, 0.0
     fecha_inicio_ventana, fecha_control = None, None
     msg_estado = "Esperando pico de emergencia..."
-    dias_stress = 0
 
     if indices_pulso:
         fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
@@ -341,12 +432,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
             dga_7dias = dga_hoy
 
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
-        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
-    # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
+    # --- MÉTRICAS DE VALIDACIÓN ---
     pearson_r = 0.0
     best_shift_days = 0
     pec, peak_lag, lead_time = 0.0, 0, 0
+    desfase_t50 = 0
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(
@@ -360,10 +452,27 @@ if df_meteo_raw is not None and modelo_ann is not None:
         best_shift_days = best_val["shift_days"]
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
+        
+        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
+
+        # CÁLCULO DE DESFASE GLOBAL (T50)
+        tot_plm2 = df_campo[col_plm2].sum()
+        if tot_plm2 > 0:
+            df_campo['cum_plm2_norm'] = df_campo[col_plm2].cumsum() / tot_plm2
+            t50_obs_date = df_campo[df_campo['cum_plm2_norm'] >= 0.5].iloc[0][col_fecha]
+            
+            # Truncamos la simulación a la última fecha observada para que sea comparable
+            max_obs_date = df_campo[col_fecha].max()
+            df_sim_trunc = df[df['Fecha'] <= max_obs_date].copy()
+            tot_emer = df_sim_trunc['EMERREL'].sum()
+            
+            if tot_emer > 0:
+                df_sim_trunc['cum_emer_norm'] = df_sim_trunc['EMERREL'].cumsum() / tot_emer
+                t50_sim_date = df_sim_trunc[df_sim_trunc['cum_emer_norm'] >= 0.5].iloc[0]['Fecha']
+                desfase_t50 = (t50_sim_date - t50_obs_date).days
 
         if fecha_control:
             malezas_totales_campo = df_campo[col_plm2].sum()
-
             malezas_controladas_efectivamente = df_campo.loc[
                 df_campo[col_fecha] <= fecha_control,
                 col_plm2
@@ -411,7 +520,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     fig_risk.update_layout(
         height=120,
         margin=dict(t=30, b=0, l=10, r=10),
-        title="Mapa de Intensidad de Riesgo (Lartigau)"
+        title="Mapa de Intensidad de Riesgo (Tres Arroyos)"
     )
     st.plotly_chart(fig_risk, use_container_width=True)
 
@@ -423,26 +532,33 @@ if df_meteo_raw is not None and modelo_ann is not None:
     ])
 
     with tab1:
-        if df_campo is not None and fecha_control:
-            st.markdown(
-                "<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>",
-                unsafe_allow_html=True
-            )
-            k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
-            k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
-            k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
-            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
-            k5.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
-            st.markdown("---")
-        elif df_campo is not None:
-            st.markdown(
-                "<p class='metric-header'>🚜 VALIDACIÓN DE MODELO CON DATOS DE CAMPO</p>",
-                unsafe_allow_html=True
-            )
-            k1, k2 = st.columns(2)
-            k1.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
-            k2.metric("Shift óptimo", f"{best_shift_days:+d} d", "Ajuste campo-simulación")
+        if df_campo is not None:
+            # --- NUEVO BLOQUE: SINCRONÍA GLOBAL Y T50 ---
+            st.markdown("<p class='metric-header'>🚜 SINCRONÍA POBLACIONAL (TENDENCIA GLOBAL)</p>", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Pearson (r)", f"{pearson_r:.3f}", "Correlación de curva")
+            c2.metric("Shift Óptimo", f"{best_shift_days:+d} d", "Corrimiento Max Pearson")
+            
+            t50_label = "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado"
+            c3.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", t50_label, delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+
+            # --- BLOQUE: COHORTES Y PICOS ---
+            st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 SINCRONÍA DE COHORTES (PULSOS)</p>", unsafe_allow_html=True)
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("F1-Score", f"{cohort_metrics['f1_score']:.2f}", f"Ventana (+{tol_anticipo} / -{tol_retraso} d)", delta_color="normal")
+            k2.metric("Aciertos (TP)", f"{cohort_metrics['tp']}", "Picos coincidentes")
+            k3.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Inventados / Omitidos", delta_color="inverse")
+            
+            sesgo = cohort_metrics['mean_offset']
+            sesgo_label = "Anticipo Medio" if sesgo < 0 else "Atraso Medio" if sesgo > 0 else "Sincronizado"
+            k4.metric("Sesgo Medio (Picos)", f"{sesgo:+.1f} d", sesgo_label, delta_color="inverse" if sesgo > 0 else "normal" if sesgo < 0 else "off")
+            
+            if fecha_control:
+                st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL</p>", unsafe_allow_html=True)
+                l1, l2, l3 = st.columns(3)
+                l1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación")
+                l2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo")
+                l3.metric("Lead Time", f"{lead_time} días", "Anticipación Logística")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
@@ -474,6 +590,21 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     marker=dict(color='#dc2626', size=10, symbol='diamond'),
                     line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')
                 ))
+                
+                if cohort_metrics['tp_points']:
+                    tp_x = [p[0] for p in cohort_metrics['tp_points']]
+                    tp_y = [p[1] for p in cohort_metrics['tp_points']]
+                    fig_emer.add_trace(go.Scatter(x=tp_x, y=tp_y, mode='markers', name='✅ TP (Detectado)', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
+                
+                if cohort_metrics['fp_points']:
+                    fp_x = [p[0] for p in cohort_metrics['fp_points']]
+                    fp_y = [p[1] for p in cohort_metrics['fp_points']]
+                    fig_emer.add_trace(go.Scatter(x=fp_x, y=fp_y, mode='markers', name='❌ FP (Inventado)', marker=dict(color='#ef4444', size=12, symbol='x', line=dict(width=2, color='DarkRed'))))
+                
+                if cohort_metrics['fn_points']:
+                    fn_x = [p[0] for p in cohort_metrics['fn_points']]
+                    fn_y = [p[1] for p in cohort_metrics['fn_points']]
+                    fig_emer.add_trace(go.Scatter(x=fn_x, y=fn_y, mode='markers', name='⚠️ FN (Omitido)', marker=dict(color='#f97316', size=12, symbol='triangle-up', line=dict(width=1, color='Black'))))
 
             if fecha_control:
                 fig_emer.add_vline(
@@ -499,7 +630,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
             fig_emer.update_layout(
                 title="Dinámica de Emergencia y Momento Crítico",
-                height=400,
+                height=450,
                 hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
@@ -576,7 +707,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         st.plotly_chart(fig_prec, use_container_width=True)
 
     with tab3:
-        st.header("🔍 Clasificación DTW (Lartigau)")
+        st.header("🔍 Clasificación DTW (Tres Arroyos)")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
 
@@ -646,18 +777,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
             resumen_val = {
                 'Métrica': [
-                    'PEC (%)',
-                    'Lag (días)',
-                    'Lead Time (días)',
-                    'Pearson (r)',
-                    'Shift óptimo (días)'
+                    'PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 
+                    'Pearson (r)', 'Shift Óptimo Max Pearson (días)', 'Desfase T50 Global (días)',
+                    'F1-Score Cohortes', 'Picos Coincidentes (TP)', 
+                    'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'
                 ],
                 'Valor': [
-                    pec,
-                    peak_lag,
-                    lead_time,
-                    pearson_r,
-                    best_shift_days
+                    pec, peak_lag, lead_time, 
+                    pearson_r, best_shift_days, desfase_t50,
+                    cohort_metrics['f1_score'], cohort_metrics['tp'], 
+                    cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']
                 ]
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
@@ -665,7 +794,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     st.sidebar.download_button(
         "📥 Descargar Reporte Completo",
         output.getvalue(),
-        "PREDWEEM_Integral_Lartigau_vK4_7.xlsx"
+        "PREDWEEM_Integral_Tres_Arroyos_vK4_9_5.xlsx"
     )
 
 else:
