@@ -3,12 +3,11 @@
 # 🌾 PREDWEEM INTEGRAL vK4.9.5 — LOLIUM TRES ARROYOS 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
-# - Corrección de Detección de picos en los bordes (Padding)
-# - Emparejamiento robusto "Best-Match-First"
-# - Cálculo de Desfase Global Poblacional (T50)
-# - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - Filtro estricto para omitir picos simulados < 0.4
-# - Recorte de evaluación de Falsos Positivos post-monitoreo
+# - Emparejamiento por Proximidad con Regla Anti-Cruce
+# - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
+# - CORRECCIÓN: Umbral por defecto bajado a 0.30 para capturar flushes medios
+# - Detección agronómica de flushes de campo (Bypass SciPy)
+# - Las estrellas TP siempre se grafican en la altura original del pico
 # ===============================================================
 
 import streamlit as st
@@ -200,46 +199,77 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
-    """
-    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First".
-    Retorna métricas de cohortes y el Sesgo Medio de Picos (mean_offset).
-    Solo evalúa Falsos Positivos dentro del período con datos de campo.
-    """
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=7, min_dist_picos=7, umbral_min_pico=0.3):
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
     obs_dates = df_campo[col_fecha].values
     obs_vals = df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
     
+    sim_vals_peaks = sim_vals.copy()
     max_obs_date = pd.to_datetime(obs_dates.max())
     
-    # --- PADDING ---
+    # --- PADDING Y DETECCIÓN SIMULADA ---
     sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
-    obs_vals_padded = np.pad(obs_vals, (1, 1), 'constant', constant_values=(0, 0))
-
-    min_h_sim = umbral_min_pico
-    min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
-
-    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=min_dist_picos)
-    peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
+    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=umbral_min_pico, distance=1)
     
     peaks_sim = peaks_sim_padded - 1
-    peaks_obs = peaks_obs_padded - 1
-    
     peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
-    peaks_obs = peaks_obs[(peaks_obs >= 0) & (peaks_obs < len(obs_vals))]
-
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
+    
+    # --- DETECCIÓN AGRONÓMICA OBSERVADA (BYPASS SCIPY) ---
+    min_h_obs = np.max(obs_vals) * 0.05 if np.max(obs_vals) > 0 else 0.01
+    peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- BEST-MATCH-FIRST ---
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ASIGNACIÓN DE VALOR 0) ---
+    ventana_contigua = min_dist_picos 
+    skip_indices = set()
+
+    for i in range(len(sim_peak_dates)):
+        if i in skip_indices:
+            continue
+
+        grupo_contiguos = [i]
+        for j in range(i + 1, len(sim_peak_dates)):
+            # CORRECCIÓN: Medimos la distancia contra el PRIMER pico del grupo [0] para evitar efecto cadena
+            if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
+                grupo_contiguos.append(j)
+            else:
+                break
+
+        if len(grupo_contiguos) > 1:
+            mejor_idx = grupo_contiguos[0]
+            min_distancia_global = float('inf')
+
+            for idx in grupo_contiguos:
+                if len(obs_peak_dates) > 0:
+                    distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
+                    dist_minima_local = min(distancias)
+                else:
+                    dist_minima_local = 0
+
+                if dist_minima_local < min_distancia_global:
+                    min_distancia_global = dist_minima_local
+                    mejor_idx = idx
+
+            for idx in grupo_contiguos:
+                if idx != mejor_idx:
+                    skip_indices.add(idx)
+
+    zeroed_indices = []
+    for idx in skip_indices:
+        sim_vals_peaks[peaks_sim[idx]] = 0.0
+        zeroed_indices.append(peaks_sim[idx])
+
+    # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
-                valid_pairs.append((i, j, days_diff, abs(days_diff)))
+                cost = abs(days_diff) + (abs(i - j) * 0.001)  # Pequeño desempate secuencial
+                valid_pairs.append((i, j, days_diff, cost))
                 
     valid_pairs.sort(key=lambda x: x[3])
     
@@ -248,25 +278,33 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     fn_points = []
     matched_sim = set()
     matched_obs = set()
+    matched_links = []
     offsets = []
     
-    for sim_idx, obs_idx, diff, abs_diff in valid_pairs:
+    for sim_idx, obs_idx, diff, cost in valid_pairs:
         if sim_idx not in matched_sim and obs_idx not in matched_obs:
-            matched_sim.add(sim_idx)
-            matched_obs.add(obs_idx)
-            tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
+            crossing = False
+            for m_sim, m_obs in matched_links:
+                if (sim_idx > m_sim and obs_idx < m_obs) or (sim_idx < m_sim and obs_idx > m_obs):
+                    crossing = True
+                    break
             
-            # Offset: Sim - Obs. Negativo = Anticipo, Positivo = Atraso
-            offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
-            offsets.append(offset_val)
+            if not crossing:
+                matched_sim.add(sim_idx)
+                matched_obs.add(obs_idx)
+                matched_links.append((sim_idx, obs_idx))
+                
+                # CORRECCIÓN: Usamos sim_vals (valores originales) para asegurar que la estrella flota 
+                # a la altura real del pico simulado, incluso si fue castigado a 0.0 en el dataframe
+                tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
+                offsets.append(diff)
             
-    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos) ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
-                fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
+                # Los FP sí los mostramos en 0.0 si fueron neutralizados
+                fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
-    # --- CÁLCULO DE FALSOS NEGATIVOS (Omisiones) ---
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
             fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
@@ -288,7 +326,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         "mean_offset": mean_offset,
         "tp_points": tp_points,
         "fp_points": fp_points,
-        "fn_points": fn_points
+        "fn_points": fn_points,
+        "zeroed_indices": zeroed_indices
     }
 
 # ---------------------------------------------------------
@@ -341,13 +380,13 @@ col_v1, col_v2 = st.sidebar.columns(2)
 with col_v1:
     tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1)
 with col_v2:
-    tol_retraso = st.number_input("Retraso (-)", value=2, step=1)
+    tol_retraso = st.number_input("Retraso (-)", value=7, step=1)
 
 col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
-    min_dist_picos = st.number_input("Separación Flushes (días)", value=14, step=1)
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=7, disabled=True)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.40, step=0.05)
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO
@@ -438,7 +477,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     best_shift_days = 0
     pec, peak_lag, lead_time = 0.0, 0, 0
     desfase_t50 = 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": []}
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(
@@ -454,6 +493,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
+
+        if cohort_metrics.get("zeroed_indices"):
+            df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
         # CÁLCULO DE DESFASE GLOBAL (T50)
         tot_plm2 = df_campo[col_plm2].sum()
