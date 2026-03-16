@@ -378,8 +378,8 @@ st.sidebar.image(
     use_container_width=True
 )
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("1. Clima (Lartigau)", type=["xlsx", "csv"])
-archivo_campo = st.sidebar.file_uploader("2. Campo (Validación Lartigau)", type=["xlsx", "csv"])
+archivo_meteo = st.sidebar.file_uploader("1. Clima (TRES ARROYOS)", type=["xlsx", "csv"])
+archivo_campo = st.sidebar.file_uploader("2. Campo (Validación TRES ARROYOS)", type=["xlsx", "csv"])
 
 df_meteo_raw = load_data(archivo_meteo, "LARTIGAU")
 df_campo_raw = load_data(archivo_campo, "LARTIGAU_campo")
