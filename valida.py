@@ -9,7 +9,8 @@
 # - NUEVO MATCH N-A-1: Observaciones de la "rampa de subida" pueden emparejarse al mismo pico simulado.
 # - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
-# - Mantenimiento de la Arquitectura ANN original de Lartigau
+# - Mantenimiento de la Arquitectura ANN
+# - NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 20 mm
 # ===============================================================
 
 import streamlit as st
@@ -291,7 +292,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     offsets = []
     
     for sim_idx, obs_idx, diff, cost in valid_pairs:
-        # ¡NUEVO!: Se quitó "sim_idx not in matched_sim" de la condición de emparejamiento.
         # Esto permite un match "N-A-1", donde varias observaciones (ej. rampa y pico) 
         # pueden ser absorbidas y explicadas por el mismo pico simulado.
         if obs_idx not in matched_obs:
@@ -381,8 +381,8 @@ st.sidebar.markdown("## 📂 1. Datos del Lote")
 archivo_meteo = st.sidebar.file_uploader("1. Clima (TRES ARROYOS)", type=["xlsx", "csv"])
 archivo_campo = st.sidebar.file_uploader("2. Campo (Validación TRES ARROYOS)", type=["xlsx", "csv"])
 
-df_meteo_raw = load_data(archivo_meteo, "LARTIGAU")
-df_campo_raw = load_data(archivo_campo, "LARTIGAU_campo")
+df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
+df_campo_raw = load_data(archivo_campo, "TRES_ARROYOS_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
@@ -468,8 +468,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # RESTRICCIÓN LARTIGAU
+    # RESTRICCIÓN HÍDRICA
     df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
+
+    # 🌧️ NUEVA REGLA: Forzar pico de 1.0 frente a eventos puntuales de lluvia >= 20 mm
+    df.loc[df["Prec"] >= 20.0, "EMERREL"] = 1.0
 
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
@@ -653,7 +656,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         st.plotly_chart(fig_prec, use_container_width=True)
 
     with tab3:
-        st.header("🔍 Clasificación DTW (Lartigau)")
+        st.header("🔍 Clasificación DTW (Tres Arroyos)")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
 
@@ -711,7 +714,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Lartigau_vK4_9_5.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_5.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
