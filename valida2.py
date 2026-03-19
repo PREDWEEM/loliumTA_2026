@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.7 — LOLIUM TRES ARROYOS 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
@@ -14,6 +14,7 @@
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (Sustituye ventana 21d)
 # - ACTUALIZACIÓN: Se elimina el forzado empírico de picos por lluvias > 20 mm para confiar 100% en el BHS.
 # - NUEVO: Visualización dinámica de la "caja" de agua (W_superficial) vs Precipitaciones.
+# - NUEVO: Menú cualitativo de Manejo del Lote para asignar dinámicamente el Ke (Cobertura de rastrojo).
 # ===============================================================
 
 import streamlit as st
@@ -30,7 +31,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.9.6",
+    page_title="PREDWEEM TRES ARROYOS vK4.9.7",
     layout="wide",
     page_icon="🌾"
 )
@@ -466,7 +467,26 @@ with col_p2:
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
-ke_val = st.sidebar.slider("Coef. Evaporación (Ke)", 0.1, 1.0, 0.4)
+
+st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
+tipo_manejo = st.sidebar.selectbox(
+    "Nivel de Rastrojo",
+    options=[
+        "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
+        "Cobertura Media (SD - Rastrojo Soja)",
+        "Baja Cobertura / Labranza Convencional"
+    ],
+    index=0 
+)
+
+if "Alta" in tipo_manejo:
+    ke_val = 0.20
+elif "Media" in tipo_manejo:
+    ke_val = 0.30
+else:
+    ke_val = 0.40
+
+st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
 
 df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
 df_campo_raw = load_data(archivo_campo, "TRES_ARROYOS_campo")
@@ -799,7 +819,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_6.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_7.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
