@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM TRES ARROYOS 2026
@@ -14,6 +13,7 @@
 # - Mantenimiento de la Arquitectura ANN específica de Tres Arroyos
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (Sustituye ventana 21d)
 # - ACTUALIZACIÓN: Se elimina el forzado empírico de picos por lluvias > 20 mm para confiar 100% en el BHS.
+# - NUEVO: Visualización dinámica de la "caja" de agua (W_superficial) vs Precipitaciones.
 # ===============================================================
 
 import streamlit as st
@@ -612,7 +612,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     with tab1:
         if df_campo is not None:
@@ -699,11 +699,46 @@ if df_meteo_raw is not None and modelo_ann is not None:
             st.plotly_chart(fig_gauge, use_container_width=True)
 
     with tab2:
-        st.header("🌧️ Dinámica de Precipitaciones Diarias")
-        fig_prec = go.Figure()
-        fig_prec.add_trace(go.Bar(x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)', marker_color='#60a5fa', opacity=0.8))
-        fig_prec.update_layout(title="Precipitación Diaria Registrada", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=400)
-        st.plotly_chart(fig_prec, use_container_width=True)
+        st.header("💧 Dinámica Hídrica del Suelo (Balance Superficial)")
+        st.markdown("Visualización de las precipitaciones frente a la retención de agua en los primeros centímetros del suelo, considerando la evapotranspiración (ET0).")
+        
+        fig_hidrico = go.Figure()
+        
+        fig_hidrico.add_trace(go.Bar(
+            x=df["Fecha"], 
+            y=df["Prec"], 
+            name='Lluvia Diaria (mm)', 
+            marker_color='#93c5fd', 
+            opacity=0.7
+        ))
+        
+        fig_hidrico.add_trace(go.Scatter(
+            x=df["Fecha"], 
+            y=df["W_superficial"], 
+            name='Agua en Suelo (0-10cm)', 
+            mode='lines',
+            line=dict(color='#0284c7', width=3),
+            fill='tozeroy',
+            fillcolor='rgba(2, 132, 199, 0.2)'
+        ))
+
+        fig_hidrico.add_hline(
+            y=w_max_val, 
+            line_dash="dot", 
+            line_color="#334155", 
+            annotation_text=f"Capacidad Máx. ({w_max_val} mm)", 
+            annotation_position="top left"
+        )
+
+        fig_hidrico.update_layout(
+            title="Precipitación vs. Retención Real de Humedad", 
+            xaxis_title="Fecha", 
+            yaxis_title="Milímetros (mm)", 
+            height=450,
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_hidrico, use_container_width=True)
 
     with tab3:
         st.header("🔍 Clasificación DTW (Tres Arroyos)")
