@@ -424,7 +424,7 @@ archivo_campo = st.sidebar.file_uploader("2. Campo (Validación TRES ARROYOS)", 
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.40)
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
