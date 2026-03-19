@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM TRES ARROYOS 2026
-# Actualización: Restricción Hídrica Sigmoide + Relajación Dinámica
-# NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 20 mm
+# 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM TRES ARROYOS 2026
+# Actualización desde vK4.4:
+# - ELIMINADO: Restricción empírica de 21 días y forzado de 20mm.
+# - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS)
+# - NUEVO: Evapotranspiración (ET0) mediante Hargreaves-Samani
+# - NUEVO: Selector de manejo de lote (Rastrojo/Labranza) para Ke
+# - NUEVO: Gráfico dinámico de retención de agua en suelo vs Lluvias
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +21,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM INTEGRAL vK4", 
+    page_title="PREDWEEM TRES ARROYOS vK4.5", 
     layout="wide",
     page_icon="🌾"
 )
@@ -92,7 +96,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA (ANN + DTW + BIO)
+# 3. LÓGICA TÉCNICA (ANN + DTW + BIO + HÍDRICO)
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -114,6 +118,35 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return (t - t_base) * factor
     else:
         return 0.0
+
+def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.37):
+    # Latitud por defecto centrada en Tres Arroyos
+    lat_rad = np.radians(latitud)
+    dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
+    dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
+    ws = np.arccos(-np.tan(lat_rad) * np.tan(dec))
+    
+    ra = (24 * 60 / np.pi) * 0.0820 * dr * (
+        ws * np.sin(lat_rad) * np.sin(dec) + np.cos(lat_rad) * np.cos(dec) * np.sin(ws)
+    )
+    ra_mm = ra / 2.45
+    tmean = (tmax + tmin) / 2.0
+    trange = np.maximum(tmax - tmin, 0)
+    
+    et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
+    return np.maximum(et0, 0)
+
+def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
+    n = len(prec)
+    w = np.zeros(n)
+    w[0] = w_max / 2.0 
+    
+    for i in range(1, n):
+        evaporacion_real = et0[i] * ke_suelo
+        w[i] = w[i-1] + prec[i] - evaporacion_real
+        w[i] = max(0.0, min(w_max, w[i]))
+        
+    return w
 
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -189,17 +222,13 @@ modelo_ann, cluster_model = load_models()
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-st.sidebar.markdown("## ⚙️ Configuración")
+st.sidebar.markdown("## 📂 1. Datos del Lote")
 archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
 df = get_data(archivo_usuario)
 
 st.sidebar.divider()
-st.sidebar.markdown("**Parámetros de Emergencia**")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.15)
-
-st.sidebar.divider()
-st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
-st.sidebar.caption("Ajusta la respuesta biológica al calor.")
+st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.15)
 
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1:
@@ -213,8 +242,35 @@ st.sidebar.markdown("**Objetivos (°Cd)**")
 dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
 dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
+st.sidebar.divider()
+st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+
+st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
+tipo_manejo = st.sidebar.selectbox(
+    "Nivel de Rastrojo",
+    options=[
+        "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
+        "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
+        "Cobertura Media (SD - Rastrojo Soja)",
+        "Baja Cobertura / Labranza Convencional"
+    ],
+    index=1 
+)
+
+if "Muy Densa" in tipo_manejo:
+    ke_val = 0.15
+elif "Alta" in tipo_manejo:
+    ke_val = 0.20
+elif "Media" in tipo_manejo:
+    ke_val = 0.30
+else:
+    ke_val = 0.40
+
+st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
+
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (LÓGICA INTEGRADA vK4.4)
+# 5. MOTOR DE CÁLCULO (LÓGICA ADAPTADA TRES ARROYOS)
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
     
@@ -227,23 +283,23 @@ if df is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # --- C. RESTRICCIÓN HÍDRICA (LÓGICA SIGMOIDE Y DINÁMICA vK4.4) ---
-    # Calculamos la lluvia acumulada en una ventana de 21 días
-    df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
+    # --- C. RESTRICCIÓN HÍDRICA (MÓDULO BHS) ---
+    # 1. Calculamos la Evapotranspiración (ET0)
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.37)
     
-    # Aplicamos factor de penalización suave (Sigmoide centrada en 15mm)
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
+    # 2. Ejecutamos el Balance Hídrico Superficial
+    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
+    
+    # 3. Factor Hídrico basado en la humedad real retenida
+    humedad_relativa = df["W_superficial"] / w_max_val
+    df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+    
+    # Multiplicador final
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
     
-    # Relajación dinámica: Si lluvia > 50mm, se anula el bloqueo de seguridad; si no, hasta el día 25.
-    jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 25)
-    df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
-
-   
-    # 🌧️ NUEVA REGLA vK4.4: Forzar pico de 1.0 frente a eventos de lluvia >= 20 mm
-    # RESTRICCIÓN: Solo aplica si el mes NO es enero (1)
-    mask_forzado = (df["Prec"] >= 20.0) & (df["Fecha"].dt.month != 1)
-    df.loc[mask_forzado, "EMERREL"] = 1.0
+    # Restricción histórica estricta para enero en Tres Arroyos
+    df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
+    df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
 
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
@@ -279,7 +335,7 @@ if df is not None and modelo_ann is not None:
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
     
     # -----------------------------------------------------
-    # VISUALIZACIÓN (TABLAS Y GRÁFICOS ORIGINALES)
+    # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM- TRES ARROYOS 2026")
 
@@ -291,7 +347,7 @@ if df is not None and modelo_ann is not None:
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Emergencia")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     with tab1:
         col_main, col_gauge = st.columns([2, 1])
@@ -356,14 +412,49 @@ if df is not None and modelo_ann is not None:
             st.plotly_chart(fig_gauge, use_container_width=True)
 
     with tab2:
-        st.header("🌧️ Dinámica de Precipitaciones Diarias")
-        fig_prec = go.Figure()
-        fig_prec.add_trace(go.Bar(
-            x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)',
-            marker_color='#60a5fa', opacity=0.8
+        st.header("💧 Dinámica Hídrica del Suelo (Balance Superficial)")
+        st.markdown("Visualización de las precipitaciones frente a la retención de agua en los primeros centímetros del suelo, considerando la evapotranspiración (ET0).")
+        
+        fig_hidrico = go.Figure()
+        
+        # Barras de Precipitación
+        fig_hidrico.add_trace(go.Bar(
+            x=df["Fecha"], 
+            y=df["Prec"], 
+            name='Lluvia Diaria (mm)', 
+            marker_color='#93c5fd', 
+            opacity=0.7
         ))
-        fig_prec.update_layout(title="Precipitación Diaria Registrada", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=400)
-        st.plotly_chart(fig_prec, use_container_width=True)
+        
+        # Línea de Agua retenida en el suelo
+        fig_hidrico.add_trace(go.Scatter(
+            x=df["Fecha"], 
+            y=df["W_superficial"], 
+            name='Agua en Suelo (0-10cm)', 
+            mode='lines',
+            line=dict(color='#0284c7', width=3),
+            fill='tozeroy',
+            fillcolor='rgba(2, 132, 199, 0.2)'
+        ))
+
+        # Límite de la caja
+        fig_hidrico.add_hline(
+            y=w_max_val, 
+            line_dash="dot", 
+            line_color="#334155", 
+            annotation_text=f"Capacidad Máx. ({w_max_val} mm)", 
+            annotation_position="top left"
+        )
+
+        fig_hidrico.update_layout(
+            title="Precipitación vs. Retención Real de Humedad", 
+            xaxis_title="Fecha", 
+            yaxis_title="Milímetros (mm)", 
+            height=450,
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_hidrico, use_container_width=True)
                     
     with tab3:
         st.header("🔍 Clasificación DTW")
@@ -406,8 +497,8 @@ if df is not None and modelo_ann is not None:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica'], 'Valor': [t_base_val, t_opt_max, t_critica]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_TresArroyos_BHS.xlsx")
 
 else:
     st.info("👋 Bienvenido. Cargue datos meteorológicos para comenzar.")
