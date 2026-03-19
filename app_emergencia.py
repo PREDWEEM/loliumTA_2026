@@ -228,7 +228,7 @@ df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.15)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.40)
 
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1:
