@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.7 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM TRES ARROYOS 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
@@ -14,7 +14,7 @@
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (Sustituye ventana 21d)
 # - ACTUALIZACIÓN: Se elimina el forzado empírico de picos por lluvias > 20 mm para confiar 100% en el BHS.
 # - NUEVO: Visualización dinámica de la "caja" de agua (W_superficial) vs Precipitaciones.
-# - NUEVO: Menú cualitativo de Manejo del Lote para asignar dinámicamente el Ke (Cobertura de rastrojo).
+# - NUEVO: Menú cualitativo de Manejo del Lote (Incluye "Cobertura Muy Densa" Ke=0.15).
 # ===============================================================
 
 import streamlit as st
@@ -31,7 +31,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.9.7",
+    page_title="PREDWEEM TRES ARROYOS vK4.9.8",
     layout="wide",
     page_icon="🌾"
 )
@@ -472,14 +472,17 @@ st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
     "Nivel de Rastrojo",
     options=[
+        "Cobertura Muy Densa (SD - Extra Rastrojo/Cultivos de Servicio)",
         "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
         "Cobertura Media (SD - Rastrojo Soja)",
         "Baja Cobertura / Labranza Convencional"
     ],
-    index=0 
+    index=1 
 )
 
-if "Alta" in tipo_manejo:
+if "Muy Densa" in tipo_manejo:
+    ke_val = 0.15
+elif "Alta" in tipo_manejo:
     ke_val = 0.20
 elif "Media" in tipo_manejo:
     ke_val = 0.30
@@ -819,7 +822,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_7.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_8.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
