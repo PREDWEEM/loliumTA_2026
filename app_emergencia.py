@@ -244,7 +244,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=35.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
 
 st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
@@ -297,10 +297,6 @@ if df is not None and modelo_ann is not None:
     # Multiplicador final
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
     
-    # Restricción histórica estricta para enero en Tres Arroyos
-    df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
-    df.loc[(df["Julian_days"] <= 25) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
-
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
@@ -339,7 +335,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM- TRES ARROYOS 2026")
 
-    colorscale_hard = [[0.0, "green"], [0.14, "green"], [0.15, "yellow"], [0.34, "yellow"], [0.35, "red"], [1.0, "red"]]
+    colorscale_hard = [[0.0, "green"], [0.39, "green"], [0.40, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
