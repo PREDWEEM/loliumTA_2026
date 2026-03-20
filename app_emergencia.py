@@ -1,14 +1,16 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
 # Actualización:
 # - ELIMINADO: Restricción empírica de 21 días y forzado de 20mm.
 # - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
-# - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS).
-# - NUEVO: Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat -38.37).
-# - NUEVO: Selector de manejo de lote (Rastrojo/Labranza) para Ke.
-# - NUEVO: Gráfico dinámico de retención de agua en suelo vs Lluvias.
+# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - Módulo Mecanístico de Balance Hídrico Superficial (BHS).
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat -38.37).
+# - Selector de manejo de lote (Rastrojo/Labranza) para Ke.
+# - Gráfico dinámico de retención de agua en suelo vs Lluvias.
+# - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # ===============================================================
 
 import streamlit as st
@@ -23,7 +25,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.5", 
+    page_title="PREDWEEM TRES ARROYOS vK4.9.8", 
     layout="wide",
     page_icon="🌾"
 )
@@ -225,14 +227,20 @@ LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.p
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
+archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
 df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
-# AJUSTADO: Umbral de alerta por defecto a 0.30
 umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.30)
+
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
+umbral_termoinhibicion = st.sidebar.number_input(
+    "Umbral Termoinhibición (°C)", 
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
@@ -304,7 +312,7 @@ if df is not None and modelo_ann is not None:
     # Asignamos un pulso base (ej. 0.65) SOLO si la red tiró un valor menor.
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
-    # --- C. RESTRICCIÓN HÍDRICA (MÓDULO BHS) ---
+    # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO BHS) ---
     # 1. Calculamos la Evapotranspiración (ET0)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.37)
     
@@ -317,9 +325,17 @@ if df is not None and modelo_ann is not None:
     
     # Multiplicador final
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
+
+    # 4. CORTE HÍDRICO ESTRICTO
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # 5. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
+    df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    df.loc[mask_inhibicion, "EMERREL"] = 0.0
     
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
-    df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
     # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
@@ -354,7 +370,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM- TRES ARROYOS 2026")
+    st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
 
     # AJUSTADO: Escala de colores personalizada (cambio en 0.30)
     colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
@@ -362,7 +378,7 @@ if df is not None and modelo_ann is not None:
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
     ))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Emergencia")
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)")
     st.plotly_chart(fig_risk, use_container_width=True)
 
     tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
@@ -388,7 +404,7 @@ if df is not None and modelo_ann is not None:
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
-            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350)
+            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350, hovermode="x unified")
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
@@ -475,7 +491,7 @@ if df is not None and modelo_ann is not None:
         st.plotly_chart(fig_hidrico, use_container_width=True)
                     
     with tab3:
-        st.header("🔍 Clasificación DTW")
+        st.header("🔍 Clasificación DTW (Tres Arroyos)")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
         if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
@@ -515,8 +531,8 @@ if df is not None and modelo_ann is not None:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_TresArroyos_BHS.xlsx")
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_8.xlsx")
 
 else:
-    st.info("👋 Bienvenido. Cargue datos meteorológicos para comenzar.")
+    st.info("👋 Bienvenido a PREDWEEM. Cargue datos meteorológicos para comenzar.")
