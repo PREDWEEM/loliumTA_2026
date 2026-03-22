@@ -6,9 +6,10 @@
 # - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS).
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat -38.37).
-# - Selector de manejo de lote (Rastrojo/Labranza) para Ke.
+# - Selector de manejo de lote (Rastrojo/Labranza) para Ke Máximo.
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias.
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # ===============================================================
@@ -140,13 +141,16 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.37):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
+# MODIFICACIÓN: Secado dinámico con factor Kr
+def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
     w[0] = w_max / 2.0 
     
     for i in range(1, n):
-        evaporacion_real = et0[i] * ke_suelo
+        kr = w[i-1] / w_max 
+        ke_dinamico = ke_suelo_max * kr
+        evaporacion_real = et0[i] * ke_dinamico
         w[i] = w[i-1] + prec[i] - evaporacion_real
         w[i] = max(0.0, min(w_max, w[i]))
         
@@ -316,8 +320,8 @@ if df is not None and modelo_ann is not None:
     # 1. Calculamos la Evapotranspiración (ET0)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.37)
     
-    # 2. Ejecutamos el Balance Hídrico Superficial
-    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
+    # 2. Ejecutamos el Balance Hídrico Superficial (Actualizado con Ke Dinámico)
+    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
     # 3. Factor Hídrico basado en la humedad real retenida
     humedad_relativa = df["W_superficial"] / w_max_val
