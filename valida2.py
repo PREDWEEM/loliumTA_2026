@@ -9,7 +9,7 @@
 # - APLANAMIENTO DE ECOS: Eliminación visual completa de la montaña del eco falso.
 # - NUEVO MATCH N-A-1: Observaciones de la "rampa de subida" pueden emparejarse al mismo pico simulado.
 # - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
-# - Detección agronómica de flushes de campo (Bypass SciPy)
+# - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
 # - Mantenimiento de la Arquitectura ANN específica de Tres Arroyos
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (Sustituye ventana 21d)
 # - ACTUALIZACIÓN: Se elimina el forzado empírico de picos por lluvias > 20 mm para confiar 100% en el BHS.
@@ -256,12 +256,12 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     
-    # --- DETECCIÓN AGRONÓMICA OBSERVADA (BYPASS SCIPY) ---
+    # --- DETECCIÓN AGRONÓMICA OBSERVADA ---
     min_h_obs = np.max(obs_vals) * 0.05 if np.max(obs_vals) > 0 else 0.01
     peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ELIMINACIÓN DE ECOS EN CADENA) ---
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS ---
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
@@ -294,7 +294,17 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
-                    skip_indices.add(idx)
+                    # Evitar que el filtro elimine el pico secundario si hay un valor de campo justo en el medio
+                    es_flanqueante = False
+                    for obs_date in obs_peak_dates:
+                        d_idx = sim_peak_dates[idx]
+                        d_mejor = sim_peak_dates[mejor_idx]
+                        if (d_idx <= obs_date <= d_mejor) or (d_mejor <= obs_date <= d_idx):
+                            es_flanqueante = True
+                            break
+                    
+                    if not es_flanqueante:
+                        skip_indices.add(idx)
                     
         i = j
 
@@ -341,12 +351,13 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     tp_points = []
     fp_points = []
     fn_points = []
-    tn_points = []
+    tn_points = [] 
     matched_sim = set()
     matched_obs = set()
     matched_links = []
     offsets = []
     
+    # 1. Emparejamiento 1 a 1 Clásico
     for sim_idx, obs_idx, diff, cost in valid_pairs:
         if obs_idx not in matched_obs:
             crossing = False
@@ -358,17 +369,66 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             if not crossing:
                 if sim_idx not in matched_sim:
                     tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
-                
-                matched_sim.add(sim_idx)
-                matched_obs.add(obs_idx)
-                matched_links.append((sim_idx, obs_idx))
-                offsets.append(diff)
+                    matched_sim.add(sim_idx)
+                    matched_obs.add(obs_idx)
+                    matched_links.append((sim_idx, obs_idx))
+                    offsets.append(diff)
+                    
+    # 2. Integración de Picos Gemelos (Misma Cohorte TP)
+    for i in range(len(sim_peak_dates)):
+        if i not in matched_sim and i not in skip_indices:
+            sim_date_i = sim_peak_dates[i]
             
+            for m_sim, m_obs in matched_links:
+                obs_date = obs_peak_dates[m_obs]
+                sim_date_m = sim_peak_dates[m_sim]
+                
+                # Condición A: El valor de campo está en el medio de ambos picos simulados
+                if (sim_date_i <= obs_date <= sim_date_m) or (sim_date_m <= obs_date <= sim_date_i):
+                    
+                    # Condición B: Son contiguos (no hay ningún otro pico válido separándolos)
+                    picos_intermedios = 0
+                    min_idx, max_idx = min(i, m_sim), max(i, m_sim)
+                    for k in range(min_idx + 1, max_idx):
+                        if k not in skip_indices:
+                            picos_intermedios += 1
+                            
+                    if picos_intermedios == 0:
+                        
+                        # Condición C: El pico gemelo sigue estando dentro de las tolerancias
+                        days_diff = (obs_date - sim_date_i).days
+                        if -tol_retraso <= days_diff <= tol_anticipo:
+                            tp_points.append((sim_date_i, sim_vals[peaks_sim[i]]))
+                            matched_sim.add(i)
+                            break
+            
+    # --- FILTRO DE INDULTO PARA FALSOS POSITIVOS ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
-                fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
+                es_error_real = True
+                sim_date_i = sim_peak_dates[i]
+                
+                # Regla de Indulto A: Está dentro de la ventana de un True Positive
+                for obs_idx in matched_obs:
+                    obs_date = obs_peak_dates[obs_idx]
+                    if -tol_retraso <= (obs_date - sim_date_i).days <= tol_anticipo:
+                        es_error_real = False
+                        break
+                
+                # Regla de Indulto B: Es contiguo (<= min_dist_picos) a un pico simulado que ya es True Positive
+                if es_error_real:
+                    for m_sim in matched_sim:
+                        sim_date_m = sim_peak_dates[m_sim]
+                        if abs((sim_date_i - sim_date_m).days) <= min_dist_picos:
+                            es_error_real = False
+                            break
+                
+                # Si sobró y no tiene indulto, es un FP real (Error)
+                if es_error_real:
+                    fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
+    # Asignación de Falsos Negativos y Verdaderos Negativos
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
             obs_idx = peaks_obs[j]
