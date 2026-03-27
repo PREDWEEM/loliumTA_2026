@@ -16,6 +16,7 @@
 # - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico (Umbrales 0.30).
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - NUEVO: Visualización dinámica de la "caja" de agua (W_superficial) vs Precipitaciones.
 # - NUEVO: Menú cualitativo de Manejo del Lote (Incluye "Cobertura Muy Densa" Ke=0.15).
 # ===============================================================
@@ -620,10 +621,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
     
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+    
+    # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # CORTE HÍDRICO ESTRICTO
+    # 1. CORTE HÍDRICO ESTRICTO DIARIO (Pisos de humedad)
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # 2. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
+    # La emergencia se bloquea al 0% hasta que un solo evento de lluvia alcance o supere w_max_val.
+    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
+    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
     # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
