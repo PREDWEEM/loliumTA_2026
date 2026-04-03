@@ -3,6 +3,7 @@
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
 # Actualización:
+# - UI: "Datos del Lote" movido a st.expander en la página principal.
 # - ADAPTACIÓN TRES ARROYOS: Coordenadas mantenidas estrictamente en -38.45 según indicación.
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * Eliminado el forzado empírico de 20 mm.
@@ -162,7 +163,6 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Vectorización matricial (reemplaza el for loop)
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -219,14 +219,49 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
+# --- HEADER PRINCIPAL ---
+st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
+
+# --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
+with st.expander("📂 1. Datos del Lote", expanded=True):
+    col_upload, col_rastrojo = st.columns(2)
+    
+    with col_upload:
+        archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
+        df = get_data(archivo_usuario)
+        
+    with col_rastrojo:
+        tipo_manejo = st.selectbox(
+            "Nivel de Rastrojo",
+            options=[
+                "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
+                "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
+                "Cobertura Media (SD - Rastrojo Soja)",
+                "Baja Cobertura / Labranza Convencional"
+            ],
+            index=1 
+        )
+        
+        if "Muy Densa" in tipo_manejo:
+            ke_val = 0.10      
+            mod_termico = 0.80 
+        elif "Alta" in tipo_manejo:
+            ke_val = 0.25      
+            mod_termico = 0.90 
+        elif "Media" in tipo_manejo:
+            ke_val = 0.50      
+            mod_termico = 0.95 
+        else:
+            ke_val = 0.95      
+            mod_termico = 1.00 
+            
+        st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
+
+
+# --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
-df = get_data(archivo_usuario)
-
-st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
 umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.30)
@@ -260,33 +295,6 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
-tipo_manejo = st.sidebar.selectbox(
-    "Nivel de Rastrojo",
-    options=[
-        "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
-        "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
-        "Cobertura Media (SD - Rastrojo Soja)",
-        "Baja Cobertura / Labranza Convencional"
-    ],
-    index=1 
-)
-
-if "Muy Densa" in tipo_manejo:
-    ke_val = 0.10      
-    mod_termico = 0.80 
-elif "Alta" in tipo_manejo:
-    ke_val = 0.25      
-    mod_termico = 0.90 
-elif "Media" in tipo_manejo:
-    ke_val = 0.50      
-    mod_termico = 0.95 
-else:
-    ke_val = 0.95      
-    mod_termico = 1.00 
-
-st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
-st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
@@ -379,8 +387,6 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
-
     # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
     colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
