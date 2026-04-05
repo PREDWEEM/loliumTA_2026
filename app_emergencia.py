@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
@@ -148,43 +149,50 @@ def generar_reporte_excel(df, params):
 
 
 # ---------------------------------------------------------
-# 3. PANTALLA DE CARGA CON RE-RUN (Garantiza visibilidad)
+# 3. MÁQUINA DE ESTADOS: ARRANQUE INSTANTÁNEO
 # ---------------------------------------------------------
-if 'app_cargada' not in st.session_state:
+if 'boot_step' not in st.session_state:
+    st.session_state.boot_step = 0
+
+# --- FASE 0: Enviar el UI de carga al navegador INMEDIATAMENTE ---
+if st.session_state.boot_step == 0:
     st.markdown("<br><br><br><br>", unsafe_allow_html=True)
     st.success("### 🚜 Bienvenido a PREDWEEM Operativo")
-    st.info("⏳ **Conectando con el servidor...** Descargando datos climáticos y configurando redes neuronales. Por favor espere unos segundos.")
+    st.info("⏳ **Conectando con el servidor de la nube...**")
+    st.progress(10)
     
-    barra = st.progress(10)
+    st.session_state.boot_step = 1
+    time.sleep(0.1) # Pequeña pausa
+    st.rerun() # Corta la ejecución aquí mismo y envía la pantalla al usuario
+
+# --- FASE 1: Con el cartel ya visible en pantalla, hacemos lo pesado ---
+elif st.session_state.boot_step == 1:
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+    st.success("### 🚜 Bienvenido a PREDWEEM Operativo")
+    st.info("⏳ **Descargando datos y calibrando redes neuronales...** Por favor espere.")
+    barra = st.progress(30)
     
-    # Renderizamos barra y pre-cargamos en caché
-    time.sleep(0.5) 
-    barra.progress(40)
+    # Aquí recién ejecutamos la carga pesada (el usuario está viendo la barra)
+    barra.progress(50)
     load_models() 
     
-    barra.progress(70)
+    barra.progress(80)
     get_data(None) 
     
     barra.progress(100)
-    time.sleep(0.5) 
+    time.sleep(0.3)
     
-    # Marcamos como cargada y REINICIAMOS la aplicación
-    st.session_state.app_cargada = True
-    st.rerun() 
-    
-    # El código se detiene acá en la primera pasada y vuelve al inicio de la página.
-    # Como los modelos ya se metieron en caché en la línea 170 y 173, la segunda pasada
-    # será instantánea.
-
+    # Terminamos de cargar, pasamos a Fase 2
+    st.session_state.boot_step = 2
+    st.rerun()
 
 # ---------------------------------------------------------
-# A PARTIR DE AQUÍ SOLO SE EJECUTA CUANDO YA ESTÁ TODO CARGADO
+# 4. FASE 2: INTERFAZ PRINCIPAL Y SIDEBAR (App Cargada)
 # ---------------------------------------------------------
-modelo_ann, cluster_model = load_models()
+# Si llega hasta acá, significa que boot_step == 2
 
-# ---------------------------------------------------------
-# 4. INTERFAZ Y SIDEBAR
-# ---------------------------------------------------------
+modelo_ann, cluster_model = load_models() # Recuperación instantánea del caché
+
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
 
 with st.expander("📂 1. Datos del Lote", expanded=True):
