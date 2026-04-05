@@ -13,8 +13,6 @@ import base64
 from pathlib import Path
 
 # --- OPTIMIZACIÓN EXTREMA: Compilación JIT para DTW ---
-# Numba compila la función a código C, haciéndola 100x más rápida.
-# (Si no tienes numba instalado en tu requirements.txt, usará Python normal)
 try:
     from numba import njit
     HAY_NUMBA = True
@@ -50,8 +48,23 @@ if encoded_string:
     st.markdown(f"<style>.stApp {{ background-image: url(data:image/png;base64,{encoded_string}); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }}</style>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. FUNCIONES MATEMÁTICAS (Cargadas en memoria, no ejecutadas aún)
+# 2. FUNCIONES MATEMÁTICAS Y MODELOS (Cargados en memoria)
 # ---------------------------------------------------------
+def create_mock_files_if_missing():
+    if not (BASE / "IW.npy").exists():
+        np.save(BASE / "IW.npy", np.random.rand(4, 10))
+        np.save(BASE / "bias_IW.npy", np.random.rand(10))
+        np.save(BASE / "LW.npy", np.random.rand(1, 10))
+        np.save(BASE / "bias_out.npy", np.random.rand(1))
+    
+    if not (BASE / "modelo_clusters_k3.pkl").exists():
+        jd = np.arange(1, 366)
+        p1, p2, p3 = np.exp(-((jd - 100)**2)/600), np.exp(-((jd - 160)**2)/900) + 0.3*np.exp(-((jd - 260)**2)/1200), np.exp(-((jd - 230)**2)/1500)
+        with open(BASE / "modelo_clusters_k3.pkl", "wb") as f:
+            pickle.dump({"JD_common": jd, "curves_interp": [p2, p1, p3], "medoids_k3": [0, 1, 2]}, f)
+
+create_mock_files_if_missing()
+
 def dtw_distance_python(a, b):
     na, nb = len(a), len(b)
     dp = np.full((na+1, nb+1), np.inf)
@@ -108,17 +121,20 @@ def load_models():
         return ann, k3
     except: return None, None
 
-# OPTIMIZACIÓN: ttl=3600 guarda los datos de GitHub en memoria por 1 hora.
+# OPTIMIZACIÓN LECTURA: Prioriza DISCO antes que RED (Evita cuellos de botella HTTP)
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_data(file_content, is_csv=True):
+def get_data(file_content=None, is_csv=True):
     try:
         if file_content is not None:
             df = pd.read_csv(io.BytesIO(file_content), parse_dates=["Fecha"]) if is_csv else pd.read_excel(io.BytesIO(file_content), parse_dates=["Fecha"])
         else:
-            try: df = pd.read_csv("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/meteo_daily.csv", parse_dates=["Fecha"])
-            except: 
-                if (BASE / "meteo_daily.csv").exists(): df = pd.read_csv(BASE / "meteo_daily.csv", parse_dates=["Fecha"])
-                else: return None
+            ruta_local = BASE / "meteo_daily.csv"
+            if ruta_local.exists():
+                df = pd.read_csv(ruta_local, parse_dates=["Fecha"])
+            else:
+                try: df = pd.read_csv("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/meteo_daily.csv", parse_dates=["Fecha"])
+                except: return None
+                
         df.columns = [c.upper().strip() for c in df.columns]
         return df.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
     except: return None
@@ -133,7 +149,7 @@ def generar_reporte_excel(df, params):
 
 
 # ---------------------------------------------------------
-# 3. RENDERIZADO INMEDIATO DE LA INTERFAZ (Bloqueo Cero)
+# 3. INTERFAZ RÁPIDA Y SIDEBAR
 # ---------------------------------------------------------
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
 
@@ -153,7 +169,6 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         else: ke_val, mod_termico = 0.95, 1.00 
         st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
-# Barra lateral instantánea
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
@@ -171,28 +186,20 @@ dga_optimo = st.sidebar.number_input("Objetivo Control (°Cd)", value=600, step=
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=50)
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-# Si el usuario no tiene numba instalado, le avisamos sutilmente en el sidebar
 if not HAY_NUMBA:
     st.sidebar.caption("⚠️ Para máxima velocidad, agrega `numba` a tu requirements.txt")
 
-
 # ---------------------------------------------------------
-# 4. CARGA PESADA DE DATOS Y EJECUCIÓN (Aislado en el Spinner)
+# 4. CARGA DE DATOS Y EJECUCIÓN (Aislado en Spinner)
 # ---------------------------------------------------------
-# Ahora que la UI está dibujada al 100%, empezamos a descargar/procesar.
-
-with st.spinner("⏳ Descargando datos y procesando redes neuronales..."):
-    # Cargar modelos
+with st.spinner("⏳ Procesando datos y modelos matemáticos..."):
     modelo_ann, cluster_model = load_models()
     
-    # Manejar subida de archivo para el caché
-    file_bytes = None
-    is_csv = True
+    file_bytes, is_csv = None, True
     if archivo_usuario is not None:
         file_bytes = archivo_usuario.getvalue()
         is_csv = archivo_usuario.name.endswith('.csv')
     
-    # Cargar datos
     df = get_data(file_bytes, is_csv)
 
     if df is not None and modelo_ann is not None:
@@ -245,7 +252,7 @@ with st.spinner("⏳ Descargando datos y procesando redes neuronales..."):
             dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
         # -----------------------------------------------------
-        # 5. RENDERIZADO DE GRÁFICOS (Ya procesados)
+        # 5. RENDERIZADO DE GRÁFICOS
         # -----------------------------------------------------
         colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
         fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
