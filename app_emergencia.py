@@ -148,39 +148,39 @@ def generar_reporte_excel(df, params):
 
 
 # ---------------------------------------------------------
-# 3. PANTALLA DE CARGA (FORZADA EN STREAMLIT CLOUD)
+# 3. PANTALLA DE CARGA CON RE-RUN (Garantiza visibilidad)
 # ---------------------------------------------------------
 if 'app_cargada' not in st.session_state:
-    # Creamos un contenedor visual masivo exclusivo para la carga
-    pantalla_carga = st.empty()
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+    st.success("### 🚜 Bienvenido a PREDWEEM Operativo")
+    st.info("⏳ **Conectando con el servidor...** Descargando datos climáticos y configurando redes neuronales. Por favor espere unos segundos.")
     
-    with pantalla_carga.container():
-        st.markdown("<br><br><br><br>", unsafe_allow_html=True)
-        st.success("### 🚜 Bienvenido a PREDWEEM Operativo")
-        st.info("⏳ **Conectando con el servidor...** Descargando datos climáticos y configurando redes neuronales. Por favor espere unos segundos.")
-        barra = st.progress(10)
-        
-        # Pausa de 1 segundo ESTRICTAMENTE NECESARIA para obligar al navegador web a mostrar el cartel de arriba
-        time.sleep(1.0) 
-        
-        # Cargar los modelos pesados
-        barra.progress(40)
-        modelo_ann, cluster_model = load_models()
-        
-        # Conectar a GitHub y bajar el clima
-        barra.progress(70)
-        _ = get_data(None) 
-        
-        barra.progress(100)
-        time.sleep(0.5) # Pausa visual final
-        
-    # Borra la pantalla de carga para siempre en esta sesión
-    pantalla_carga.empty()
+    barra = st.progress(10)
+    
+    # Renderizamos barra y pre-cargamos en caché
+    time.sleep(0.5) 
+    barra.progress(40)
+    load_models() 
+    
+    barra.progress(70)
+    get_data(None) 
+    
+    barra.progress(100)
+    time.sleep(0.5) 
+    
+    # Marcamos como cargada y REINICIAMOS la aplicación
     st.session_state.app_cargada = True
-else:
-    # Cargas instantáneas desde memoria si el usuario ya está adentro
-    modelo_ann, cluster_model = load_models()
+    st.rerun() 
+    
+    # El código se detiene acá en la primera pasada y vuelve al inicio de la página.
+    # Como los modelos ya se metieron en caché en la línea 170 y 173, la segunda pasada
+    # será instantánea.
 
+
+# ---------------------------------------------------------
+# A PARTIR DE AQUÍ SOLO SE EJECUTA CUANDO YA ESTÁ TODO CARGADO
+# ---------------------------------------------------------
+modelo_ann, cluster_model = load_models()
 
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
