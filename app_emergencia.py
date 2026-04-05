@@ -18,6 +18,7 @@
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # - OPTIMIZACIÓN v2: Caché implementado para imágenes, datos y reportes.
+# - UX: Indicadores de carga (spinners) agregados.
 # ===============================================================
 
 import streamlit as st
@@ -99,7 +100,6 @@ def set_bg_hack(main_bg_file):
             unsafe_allow_html=True
         )
 
-# Asegúrate de tener el archivo o comenta la línea si no lo usas localmente
 set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
@@ -213,7 +213,6 @@ def load_models():
         st.error(f"Error cargando modelos: {e}")
         return None, None
 
-# --- OPTIMIZACIÓN: CACHÉ PARA CARGA DE DATOS ---
 @st.cache_data
 def get_data(file_input):
     try:
@@ -245,7 +244,6 @@ def get_data(file_input):
         st.error(f"Error leyendo datos: {e}")
         return None
 
-# --- OPTIMIZACIÓN: CACHÉ PARA GENERACIÓN DEL EXCEL ---
 @st.cache_data
 def generar_reporte_excel(df, params):
     output = io.BytesIO()
@@ -271,7 +269,10 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
     
     with col_upload:
         archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
-        df = get_data(archivo_usuario)
+        
+        # INDICADOR DE CARGA 1: Lectura de datos
+        with st.spinner("⏳ Cargando datos meteorológicos..."):
+            df = get_data(archivo_usuario)
         
     with col_rastrojo:
         tipo_manejo = st.selectbox(
@@ -344,81 +345,84 @@ w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
     
-    # --- A. PREPROCESAMIENTO ---
-    df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
-    df["Julian_days"] = df["Fecha"].dt.dayofyear
-    
-    # --- SIMULACIÓN TÉRMICA DEL SUELO ---
-    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
-    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
-    
-    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
-    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
-
-    # --- B. PREDICCIÓN NEURAL PURA (Usando la Temperatura del Suelo) ---
-    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
-    emerrel_raw, _ = modelo_ann.predict(X)
-    df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
-    
-    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
-    limite_juliano_temprano = 110 # Aprox. 20 de Abril
-    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    
-    mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
-
-    # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
-    
-    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
-    
-    humedad_relativa = df["W_superficial"] / w_max_val
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
-    
-    df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
-
-    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
-
-    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
-    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
-
-    df["Tmedia"] = df["Tmedia_aire"]
-    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
-    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
-    df.loc[mask_inhibicion, "EMERREL"] = 0.0
-    
-    # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
-    df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
-    
-    # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
-    fecha_hoy = pd.Timestamp.now().normalize() 
-    if fecha_hoy not in df['Fecha'].values:
-        fecha_hoy = df['Fecha'].max()
-    
-    indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
-    
-    dga_hoy = 0.0
-    dga_7dias = 0.0
-    fecha_inicio_ventana = None
-    msg_estado = "Esperando pico de emergencia..."
-
-    if indices_pulso:
-        idx_primer_pico = indices_pulso[0]
-        fecha_inicio_ventana = df.loc[idx_primer_pico, "Fecha"]
+    # INDICADOR DE CARGA 2: Procesamiento matemático y de modelos
+    with st.spinner("⚙️ Procesando balance hídrico y redes neuronales..."):
         
-        df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
-        df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
+        # --- A. PREPROCESAMIENTO ---
+        df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
+        df["Julian_days"] = df["Fecha"].dt.dayofyear
         
-        mask_hoy = (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)
-        dga_hoy = df.loc[mask_hoy, "DG"].sum()
+        # --- SIMULACIÓN TÉRMICA DEL SUELO ---
+        df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
+        amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
         
-        idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
-        df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
-        dga_7dias = dga_hoy + df_pronostico["DG"].sum()
+        df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
+        df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
+
+        # --- B. PREDICCIÓN NEURAL PURA (Usando la Temperatura del Suelo) ---
+        X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
+        emerrel_raw, _ = modelo_ann.predict(X)
+        df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
         
-        msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
-        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
-    
+        # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+        limite_juliano_temprano = 110 # Aprox. 20 de Abril
+        df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+        
+        mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
+        df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
+
+        # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
+        df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
+        
+        df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
+        
+        humedad_relativa = df["W_superficial"] / w_max_val
+        df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+        
+        df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
+
+        df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+        df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
+        df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
+
+        df["Tmedia"] = df["Tmedia_aire"]
+        df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+        mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+        df.loc[mask_inhibicion, "EMERREL"] = 0.0
+        
+        # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
+        df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
+        
+        # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
+        fecha_hoy = pd.Timestamp.now().normalize() 
+        if fecha_hoy not in df['Fecha'].values:
+            fecha_hoy = df['Fecha'].max()
+        
+        indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
+        
+        dga_hoy = 0.0
+        dga_7dias = 0.0
+        fecha_inicio_ventana = None
+        msg_estado = "Esperando pico de emergencia..."
+
+        if indices_pulso:
+            idx_primer_pico = indices_pulso[0]
+            fecha_inicio_ventana = df.loc[idx_primer_pico, "Fecha"]
+            
+            df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
+            df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
+            
+            mask_hoy = (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)
+            dga_hoy = df.loc[mask_hoy, "DG"].sum()
+            
+            idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+            df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
+            dga_7dias = dga_hoy + df_pronostico["DG"].sum()
+            
+            msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+            dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
+
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
