@@ -9,3 +9,4 @@ openpyxl
 scipy
 scikit-learn
 seaborn
+numba
