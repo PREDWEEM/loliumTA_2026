@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
@@ -18,6 +17,7 @@
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
+# - OPTIMIZACIÓN v2: Caché implementado para imágenes, datos y reportes.
 # ===============================================================
 
 import streamlit as st
@@ -26,6 +26,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pickle
 import io
+import base64
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -71,36 +72,35 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
+# --- OPTIMIZACIÓN: CACHÉ PARA IMAGEN DE FONDO ---
+@st.cache_data
+def get_base64_image(main_bg_file):
+    try:
+        with open(main_bg_file, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode()
+    except FileNotFoundError:
+        return ""
 
-import base64
-
-# --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
-    """
-    Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
-    Funciona bien para fondos de pantalla completa con bajo contraste.
-    """
-    with open(main_bg_file, "rb") as image_file:
-        encoded_string = base64.b64encode(image_file.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url(data:image/png;base64,{encoded_string});
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    encoded_string = get_base64_image(main_bg_file)
+    if encoded_string:
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url(data:image/png;base64,{encoded_string});
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
 
-# --- LLAMA A LA FUNCIÓN (Usa la Opción 1 o 2) ---
-# st.set_page_config(...) # Tu configuración actual
-# Tu bloque <style> actual...
-set_bg_hack("fondo_predweem_v3.png") # Reemplaza con tu archivo
+# Asegúrate de tener el archivo o comenta la línea si no lo usas localmente
+set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
 # 2. ROBUSTEZ: GENERADOR DE ARCHIVOS MOCK
@@ -152,7 +152,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
-    # Latitud mantenida estrictamente en -38.45
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -168,7 +167,6 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-# Secado dinámico con factor Kr
 def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
@@ -215,6 +213,8 @@ def load_models():
         st.error(f"Error cargando modelos: {e}")
         return None, None
 
+# --- OPTIMIZACIÓN: CACHÉ PARA CARGA DE DATOS ---
+@st.cache_data
 def get_data(file_input):
     try:
         if file_input:
@@ -244,6 +244,18 @@ def get_data(file_input):
     except Exception as e:
         st.error(f"Error leyendo datos: {e}")
         return None
+
+# --- OPTIMIZACIÓN: CACHÉ PARA GENERACIÓN DEL EXCEL ---
+@st.cache_data
+def generar_reporte_excel(df, params):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Data_Diaria')
+        pd.DataFrame({
+            'Configuracion': list(params.keys()), 
+            'Valor': list(params.values())
+        }).to_excel(writer, sheet_name='Bio_Params', index=False)
+    return output.getvalue()
 
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
@@ -356,28 +368,20 @@ if df is not None and modelo_ann is not None:
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
     # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
-    # 1. Calculamos la Evapotranspiración (ET0) - Latitud mantenida en -38.45
-    # Nota: Se usan las T del aire, ya que ET0 es una demanda atmosférica
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
     
-    # 2. Ejecutamos el Balance Hídrico Superficial (Actualizado con Ke Dinámico)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
-    # 3. Factor Hídrico basado en la humedad real retenida
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
     
-    # Multiplicador final (Sin forzados empíricos)
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # 4. CORTE HÍDRICO ESTRICTO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
 
-    # 5. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d - del aire)
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
@@ -418,7 +422,6 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
     colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
@@ -494,7 +497,6 @@ if df is not None and modelo_ann is not None:
         
         fig_hidrico = go.Figure()
         
-        # Barras de Precipitación
         fig_hidrico.add_trace(go.Bar(
             x=df["Fecha"], 
             y=df["Prec"], 
@@ -503,7 +505,6 @@ if df is not None and modelo_ann is not None:
             opacity=0.7
         ))
         
-        # Línea de Agua retenida en el suelo
         fig_hidrico.add_trace(go.Scatter(
             x=df["Fecha"], 
             y=df["W_superficial"], 
@@ -514,7 +515,6 @@ if df is not None and modelo_ann is not None:
             fillcolor='rgba(2, 132, 199, 0.2)'
         ))
 
-        # Límite de la caja
         fig_hidrico.add_hline(
             y=w_max_val, 
             line_dash="dot", 
@@ -571,11 +571,23 @@ if df is not None and modelo_ann is not None:
         fig_bio.add_trace(go.Scatter(x=x_temps, y=y_tt, mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy'))
         st.plotly_chart(fig_bio, use_container_width=True)
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_8.xlsx")
+    # --- DESCARGA DE REPORTE OPTIMIZADA CON CACHÉ ---
+    parametros_actuales = {
+        'T_Base': t_base_val, 
+        'T_Optima': t_opt_max, 
+        'T_Critica': t_critica, 
+        'W_Max': w_max_val, 
+        'Ke': ke_val, 
+        'Mod_Termico': mod_termico, 
+        'Umbral_Termoinhibicion': umbral_termoinhibicion
+    }
+    excel_data = generar_reporte_excel(df, parametros_actuales)
+    
+    st.sidebar.download_button(
+        "📥 Descargar Reporte", 
+        excel_data, 
+        "PREDWEEM_Operativo_TresArroyos_vK4_9_8.xlsx"
+    )
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos meteorológicos para comenzar.")
