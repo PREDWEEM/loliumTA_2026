@@ -17,8 +17,7 @@
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
-# - OPTIMIZACIÓN v2: Caché implementado para imágenes, datos y reportes.
-# - UX: Indicadores de carga (spinners) y Splash Screen inicial agregados.
+# - UX: Caché, Spinners y Splash Screen (Solo primera visita) mediante session_state.
 # ===============================================================
 
 import streamlit as st
@@ -28,6 +27,7 @@ import plotly.graph_objects as go
 import pickle
 import io
 import base64
+import time  # Necesario para la animación inicial
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -100,6 +100,7 @@ def set_bg_hack(main_bg_file):
             unsafe_allow_html=True
         )
 
+# Asegúrate de tener el archivo o comenta la línea si no lo usas
 set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
@@ -255,44 +256,44 @@ def generar_reporte_excel(df, params):
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
     return output.getvalue()
 
-# ---------------------------------------------------------
-# 4. INTERFAZ Y SIDEBAR
-# ---------------------------------------------------------
-import time # Asegúrate de que 'import time' esté al inicio de tu script
 
-# --- SPLASH SCREEN (Pantalla de Carga Inicial Real) ---
+# ---------------------------------------------------------
+# 4. SPLASH SCREEN (Aparece solo 1 vez por sesión)
+# ---------------------------------------------------------
 if 'app_cargada' not in st.session_state:
     pantalla_carga = st.empty()
     
     with pantalla_carga.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
-        st.info("⏳ **Iniciando PREDWEEM...** Descargando datos meteorológicos y calibrando red neuronal. Por favor, espere.")
+        st.info("⏳ **Iniciando PREDWEEM...** Descargando datos meteorológicos y calibrando redes neuronales. Por favor, espere.")
         barra = st.progress(25)
         
-        # Pausa de medio segundo para obligar al navegador a dibujar el cartel
+        # Obligar al navegador a pintar la interfaz antes de seguir calculando
         time.sleep(0.5) 
         
-        # 1. Cargar modelos en caché
+        # Cargar modelos en memoria RAM
         barra.progress(50)
         modelo_ann, cluster_model = load_models()
         
-        # 2. Pre-cargar el CSV de GitHub en caché
+        # Pre-cargar el CSV de GitHub en el caché
         barra.progress(75)
         _ = get_data(None) 
         
+        # Animación final
         barra.progress(100)
-        time.sleep(0.3) # Pequeña pausa final para que se vea el 100%
+        time.sleep(0.3) 
         
-    # Limpiar pantalla y marcar como cargada para que no vuelva a aparecer en esta sesión
+    # Limpiar pantalla y marcar como completado para el resto de la sesión
     pantalla_carga.empty()
     st.session_state.app_cargada = True
 else:
-    # Si ya se cargó en esta sesión, simplemente obtenemos los modelos directo del caché
+    # Si ya ingresó antes, tomar datos directo del caché sin demoras
     modelo_ann, cluster_model = load_models()
-# --- FIN SPLASH SCREEN ---
 
-# --- HEADER PRINCIPAL ---
-st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
+
+# ---------------------------------------------------------
+# 5. INTERFAZ Y SIDEBAR
+# ---------------------------------------------------------
 
 # --- HEADER PRINCIPAL ---
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
@@ -304,7 +305,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
     with col_upload:
         archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
         
-        # INDICADOR DE CARGA 1: Lectura de datos
+        # INDICADOR PARA LECTURA MANUAL
         with st.spinner("⏳ Cargando datos meteorológicos..."):
             df = get_data(archivo_usuario)
         
@@ -375,11 +376,11 @@ w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0
 
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
+# 6. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
     
-    # INDICADOR DE CARGA 2: Procesamiento matemático y de modelos
+    # INDICADOR PARA RE-CÁLCULOS
     with st.spinner("⚙️ Procesando balance hídrico y redes neuronales..."):
         
         # --- A. PREPROCESAMIENTO ---
