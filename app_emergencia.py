@@ -255,10 +255,25 @@ def generar_reporte_excel(df, params):
         }).to_excel(writer, sheet_name='Bio_Params', index=False)
     return output.getvalue()
 
+
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
+
+# Crear un contenedor vacío temporal
+pantalla_carga = st.empty()
+
+# Llenar el contenedor con un mensaje de carga destacado
+with pantalla_carga.container():
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.info("⏳ **Iniciando PREDWEEM...** Cargando modelos de redes neuronales y calibraciones biológicas. Por favor, espere un momento.")
+    st.progress(0.5) # Opcional: muestra una barra a la mitad para dar sensación de progreso
+
+# Cargar los modelos pesados
 modelo_ann, cluster_model = load_models()
+
+# Una vez cargado todo, vaciar el contenedor (desaparece el cartel)
+pantalla_carga.empty()
 
 # --- HEADER PRINCIPAL ---
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
