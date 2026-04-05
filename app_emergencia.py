@@ -258,19 +258,41 @@ def generar_reporte_excel(df, params):
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
+import time # Asegúrate de que 'import time' esté al inicio de tu script
 
-# --- SPLASH SCREEN (Pantalla de Carga Inicial) ---
-pantalla_carga = st.empty()
-
-with pantalla_carga.container():
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.info("⏳ **Iniciando PREDWEEM...** Cargando modelos de redes neuronales y calibraciones biológicas. Por favor, espere un momento.")
-    st.progress(0.5)
-
-modelo_ann, cluster_model = load_models()
-
-pantalla_carga.empty()
+# --- SPLASH SCREEN (Pantalla de Carga Inicial Real) ---
+if 'app_cargada' not in st.session_state:
+    pantalla_carga = st.empty()
+    
+    with pantalla_carga.container():
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.info("⏳ **Iniciando PREDWEEM...** Descargando datos meteorológicos y calibrando red neuronal. Por favor, espere.")
+        barra = st.progress(25)
+        
+        # Pausa de medio segundo para obligar al navegador a dibujar el cartel
+        time.sleep(0.5) 
+        
+        # 1. Cargar modelos en caché
+        barra.progress(50)
+        modelo_ann, cluster_model = load_models()
+        
+        # 2. Pre-cargar el CSV de GitHub en caché
+        barra.progress(75)
+        _ = get_data(None) 
+        
+        barra.progress(100)
+        time.sleep(0.3) # Pequeña pausa final para que se vea el 100%
+        
+    # Limpiar pantalla y marcar como cargada para que no vuelva a aparecer en esta sesión
+    pantalla_carga.empty()
+    st.session_state.app_cargada = True
+else:
+    # Si ya se cargó en esta sesión, simplemente obtenemos los modelos directo del caché
+    modelo_ann, cluster_model = load_models()
 # --- FIN SPLASH SCREEN ---
+
+# --- HEADER PRINCIPAL ---
+st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
 
 # --- HEADER PRINCIPAL ---
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
