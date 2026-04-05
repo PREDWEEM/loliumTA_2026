@@ -1,27 +1,18 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
+# OPTIMIZACIÓN EXTREMA: Lazy Imports y Renderizado Visual Inmediato
 # ===============================================================
 
 import streamlit as st
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import pickle
-import io
 import base64
 from pathlib import Path
 
-# --- OPTIMIZACIÓN EXTREMA: Compilación JIT para DTW ---
-try:
-    from numba import njit
-    HAY_NUMBA = True
-except ImportError:
-    HAY_NUMBA = False
+# ---------------------------------------------------------
+# 1. RENDERIZADO VISUAL INMEDIATO (Milisegundo 0)
+# ---------------------------------------------------------
+# Esto se ejecuta antes de cargar cualquier librería pesada matemática
 
-# ---------------------------------------------------------
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO (Instantáneo)
-# ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM TRES ARROYOS vK4.9.8", layout="wide", page_icon="🌾")
 
 st.markdown("""
@@ -43,12 +34,39 @@ def get_base64_image(main_bg_file):
         with open(main_bg_file, "rb") as image_file: return base64.b64encode(image_file.read()).decode()
     except FileNotFoundError: return ""
 
+# Inyección de imagen de fondo al instante
 encoded_string = get_base64_image("fondo_predweem_v3.png")
 if encoded_string:
     st.markdown(f"<style>.stApp {{ background-image: url(data:image/png;base64,{encoded_string}); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }}</style>", unsafe_allow_html=True)
 
+st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
+
+# Cartel temporal mientras cargan las librerías pesadas
+ui_carga = st.empty()
+ui_carga.info("⚙️ Iniciando motores de PREDWEEM. Cargando librerías matemáticas y visuales...")
+
+
 # ---------------------------------------------------------
-# 2. FUNCIONES MATEMÁTICAS Y MODELOS (Cargados en memoria)
+# 2. IMPORTACIONES PESADAS (Lazy Loading)
+# ---------------------------------------------------------
+# Ahora que el usuario ya ve la app, cargamos lo pesado en segundo plano
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import pickle
+import io
+
+try:
+    from numba import njit
+    HAY_NUMBA = True
+except ImportError:
+    HAY_NUMBA = False
+
+# Borramos el cartel de carga inicial
+ui_carga.empty()
+
+# ---------------------------------------------------------
+# 3. FUNCIONES MATEMÁTICAS Y MODELOS
 # ---------------------------------------------------------
 def create_mock_files_if_missing():
     if not (BASE / "IW.npy").exists():
@@ -121,7 +139,6 @@ def load_models():
         return ann, k3
     except: return None, None
 
-# OPTIMIZACIÓN LECTURA: Prioriza DISCO antes que RED (Evita cuellos de botella HTTP)
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_data(file_content=None, is_csv=True):
     try:
@@ -149,10 +166,8 @@ def generar_reporte_excel(df, params):
 
 
 # ---------------------------------------------------------
-# 3. INTERFAZ RÁPIDA Y SIDEBAR
+# 4. INTERFAZ INTERACTIVA Y SIDEBAR
 # ---------------------------------------------------------
-st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
-
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
     with col_upload:
@@ -186,11 +201,9 @@ dga_optimo = st.sidebar.number_input("Objetivo Control (°Cd)", value=600, step=
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=50)
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-if not HAY_NUMBA:
-    st.sidebar.caption("⚠️ Para máxima velocidad, agrega `numba` a tu requirements.txt")
 
 # ---------------------------------------------------------
-# 4. CARGA DE DATOS Y EJECUCIÓN (Aislado en Spinner)
+# 5. CARGA DE DATOS Y EJECUCIÓN (Aislado en Spinner)
 # ---------------------------------------------------------
 with st.spinner("⏳ Procesando datos y modelos matemáticos..."):
     modelo_ann, cluster_model = load_models()
@@ -252,7 +265,7 @@ with st.spinner("⏳ Procesando datos y modelos matemáticos..."):
             dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
 
         # -----------------------------------------------------
-        # 5. RENDERIZADO DE GRÁFICOS
+        # 6. RENDERIZADO DE GRÁFICOS
         # -----------------------------------------------------
         colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
         fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
