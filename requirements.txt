@@ -2,5 +2,7 @@ streamlit
 pandas
 numpy
 plotly
-xlsxwriter
+XlsxWriter
 numba
+scipy
+openpyxl
