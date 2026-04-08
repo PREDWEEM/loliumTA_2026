@@ -493,7 +493,7 @@ archivo_campo = st.sidebar.file_uploader("2. Campo (Validación TRES ARROYOS)", 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.20)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input(
@@ -541,7 +541,7 @@ col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
     min_dist_picos = st.number_input("Separación Flushes (días)", min_value=1, max_value=45, value=7, step=1)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.20, step=0.05)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
@@ -750,7 +750,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
 
-    colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
+    colorscale_hard = [[0.0, "green"], [0.19, "green"], [0.20, "red"], [1.0, "red"]]
 
     fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)")
