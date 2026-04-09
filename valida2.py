@@ -625,12 +625,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
+
     # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
     limite_juliano_temprano = 110 # Aprox. 20 de Abril
+    
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     
+    # Máscara: Fecha temprana + Lluvia excepcional (según slider)
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
+    
+    # Asignamos un pulso MÁXIMO (1.0) SOLO si la red tiró un valor menor.
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL Y TÉRMICO
