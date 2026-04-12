@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
@@ -22,10 +21,17 @@
 
 import streamlit as st
 import time
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import pickle
+import io
+from pathlib import Path
+import base64
 
 # 1. PANTALLA DE CARGA ULTRARRÁPIDA
 if 'arranque_fase' not in st.session_state:
-    st.set_page_config(page_title="PREDWEEM", layout="wide")
+    st.set_page_config(page_title="PREDWEEM", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos).")
     st.progress(20)
@@ -34,23 +40,13 @@ if 'arranque_fase' not in st.session_state:
     time.sleep(0.1) # Obliga al navegador a renderizar el cartel
     st.rerun()      # Reinicia el código al instante
 
-
-import streamlit as st
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import pickle
-import io
-from pathlib import Path
-
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
-st.set_page_config(
-    page_title="PREDWEEM TRES ARROYOS vK4.9.8", 
-    layout="wide",
-    page_icon="🌾"
-)
+# (La configuración de página ya se hizo en el bloque de carga si es la primera vez, 
+# pero la mantenemos aquí de forma segura para las recargas normales)
+if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
+    st.session_state.arranque_fase = 2 # Evita set_page_config duplicado en rerun
 
 st.markdown("""
 <style>
@@ -81,13 +77,17 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* ——— NUEVO ESTILO: Fondo blanco para el recuadro bordeado ——— */
+    [data-testid="stContainerBorder"] {
+        background-color: #ffffff !important;
+        padding: 20px;
+        border-radius: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
-
-
-import base64
 
 # --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
@@ -95,27 +95,28 @@ def set_bg_hack(main_bg_file):
     Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
     Funciona bien para fondos de pantalla completa con bajo contraste.
     """
-    with open(main_bg_file, "rb") as image_file:
-        encoded_string = base64.b64encode(image_file.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url(data:image/png;base64,{encoded_string});
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        with open(main_bg_file, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url(data:image/png;base64,{encoded_string});
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        pass # Si no encuentra el fondo, simplemente no lo pone y evita que la app crashee
 
-# --- LLAMA A LA FUNCIÓN (Usa la Opción 1 o 2) ---
-# st.set_page_config(...) # Tu configuración actual
-# Tu bloque <style> actual...
-set_bg_hack("fondo_predweem_v3.png") # Reemplaza con tu archivo
+# --- LLAMA A LA FUNCIÓN ---
+set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
 # 2. ROBUSTEZ: GENERADOR DE ARCHIVOS MOCK
@@ -301,7 +302,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
                 
             st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
-           
+            
     
     
 # --- SIDEBAR ---
