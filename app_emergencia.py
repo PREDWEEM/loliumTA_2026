@@ -13,7 +13,7 @@
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud mantenida: -38.45)
-# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
+# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo (slider continuo).
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
@@ -43,10 +43,9 @@ if 'arranque_fase' not in st.session_state:
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
-# (La configuración de página ya se hizo en el bloque de carga si es la primera vez, 
-# pero la mantenemos aquí de forma segura para las recargas normales)
+# Evita ejecutar set_page_config de nuevo si ya pasó la fase inicial
 if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
-    st.session_state.arranque_fase = 2 # Evita set_page_config duplicado en rerun
+    st.session_state.arranque_fase = 2 
 
 st.markdown("""
 <style>
@@ -78,11 +77,12 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* ——— NUEVO ESTILO: Fondo blanco para el recuadro bordeado ——— */
-    [data-testid="stContainerBorder"] {
+    /* ——— CORRECCIÓN: Fondo blanco para el recuadro bordeado ——— */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff !important;
-        padding: 20px;
-        border-radius: 10px;
+        border-radius: 10px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.15) !important;
+        padding: 5px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -93,7 +93,6 @@ BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 def set_bg_hack(main_bg_file):
     """
     Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
-    Funciona bien para fondos de pantalla completa con bajo contraste.
     """
     try:
         with open(main_bg_file, "rb") as image_file:
@@ -113,7 +112,7 @@ def set_bg_hack(main_bg_file):
             unsafe_allow_html=True
         )
     except FileNotFoundError:
-        pass # Si no encuentra el fondo, simplemente no lo pone y evita que la app crashee
+        pass # Evita crasheos si la imagen no se encuentra
 
 # --- LLAMA A LA FUNCIÓN ---
 set_bg_hack("fondo_predweem_v3.png") 
@@ -277,20 +276,19 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
         df = get_data(archivo_usuario)
         
-    
     with col_rastrojo:
         # Envolvemos la sección en un contenedor con borde para destacarla
         with st.container(border=True):
-            st.markdown("#### 🌾 Manejo de Superficie") # Un subtítulo opcional para darle contexto al recuadro
+            st.markdown("#### 🌾 Manejo de Superficie") 
             
-            # 1. Interfaz más intuitiva: Slider de 0% a 100%
+            # 1. Interfaz intuitiva: Slider de 0% a 100%
             cobertura_pct = st.slider(
                 "Cobertura de Rastrojo en Suelo (%)",
                 min_value=0, max_value=100, value=30, step=5,
                 help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
             )
 
-            # 2. Vectores de anclaje (Mapeo de tu calibración previa al nuevo %)
+            # 2. Vectores de anclaje
             x_cobertura = [0, 30, 70, 100] 
             
             # 3. Interpolación para el factor hídrico (Ke)
@@ -303,8 +301,6 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
                 
             st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
             
-    
-    
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
@@ -342,7 +338,6 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
 # ---------------------------------------------------------
@@ -373,7 +368,6 @@ if df is not None and modelo_ann is not None:
 
     # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
     # 1. Calculamos la Evapotranspiración (ET0) - Latitud mantenida en -38.45
-    # Nota: Se usan las T del aire, ya que ET0 es una demanda atmosférica
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
     
     # 2. Ejecutamos el Balance Hídrico Superficial (Actualizado con Ke Dinámico)
