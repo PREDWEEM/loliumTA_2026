@@ -277,32 +277,26 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         df = get_data(archivo_usuario)
         
     with col_rastrojo:
-        tipo_manejo = st.selectbox(
-            "Nivel de Rastrojo",
-            options=[
-                "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
-                "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
-                "Cobertura Media (SD - Rastrojo Soja)",
-                "Baja Cobertura / Labranza Convencional"
-            ],
-            index=1 
+        # 1. Interfaz más intuitiva: Slider de 0% a 100%
+        cobertura_pct = st.slider(
+            "🌾 Cobertura de Rastrojo en Suelo (%)",
+            min_value=0, max_value=100, value=30, step=5,
+            help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
         )
-        
-        if "Muy Densa" in tipo_manejo:
-            ke_val = 0.10      
-            mod_termico = 0.80 
-        elif "Alta" in tipo_manejo:
-            ke_val = 0.25      
-            mod_termico = 0.90 
-        elif "Media" in tipo_manejo:
-            ke_val = 0.50      
-            mod_termico = 0.95 
-        else:
-            ke_val = 0.95      
-            mod_termico = 1.00 
-            
-        st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
+        # 2. Vectores de anclaje (Mapeo de tu calibración previa al nuevo %)
+        # Asumimos: 0% (Baja), 30% (Media), 70% (Alta), 100% (Muy Densa)
+        x_cobertura = [0, 30, 70, 100] 
+        
+        # 3. Interpolación para el factor hídrico (Ke)
+        y_ke = [0.95, 0.50, 0.25, 0.10]
+        ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
+        
+        # 4. Interpolación para el factor térmico
+        y_mod_termico = [1.00, 0.95, 0.90, 0.80]
+        mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
+            
+        st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
 
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
