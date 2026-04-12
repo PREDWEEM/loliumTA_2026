@@ -280,31 +280,44 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
         df = get_data(archivo_usuario)
         
+ 
     with col_rastrojo:
-        # Envolvemos la sección en un contenedor con borde para destacarla
-        with st.container(border=True):
-            st.markdown("#### 🌾 Manejo de Superficie") 
-            
-            # 1. Interfaz intuitiva: Slider de 0% a 100%
-            cobertura_pct = st.slider(
-                "Cobertura de Rastrojo en Suelo (%)",
-                min_value=0, max_value=100, value=95, step=5,
-                help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
-            )
+        st.markdown("#### 🌾 Manejo de Superficie")
+        cobertura_pct = st.slider(
+            "Cobertura de Rastrojo en Suelo (%)",
+            min_value=0, max_value=100, value=95, step=5,
+            help="0% = Suelo desnudo / Labranza. 100% = Cobertura total (Ej. Cultivo de Servicio)."
+        )
 
-            # 2. Vectores de anclaje
-            x_cobertura = [0, 30, 70, 100] 
-            
-            # 3. Interpolación para el factor hídrico (Ke)
-            y_ke = [0.95, 0.50, 0.25, 0.10]
-            ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
-            
-            # 4. Interpolación para el factor térmico
-            y_mod_termico = [1.00, 0.95, 0.90, 0.80]
-            mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
-                
-            st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
-            
+        x_cobertura = [0, 30, 70, 100]
+        ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.50, 0.25, 0.10]))
+        mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
+
+        html_card = f"""
+        <div style="
+            background-color: #ffffff;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e2e8f0;
+            margin-top: 15px;
+        ">
+            <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
+                Parámetros Dinámicos Aplicados
+            </h5>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
+                <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
+                <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
+            </div>
+        </div>
+        """
+        st.markdown(html_card, unsafe_allow_html=True)    
+    
+    
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
