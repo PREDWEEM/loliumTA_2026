@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
