@@ -276,28 +276,34 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         archivo_usuario = st.file_uploader("Subir Clima Manual (TRES ARROYOS)", type=["xlsx", "csv"])
         df = get_data(archivo_usuario)
         
+    
     with col_rastrojo:
-        # 1. Interfaz más intuitiva: Slider de 0% a 100%
-        cobertura_pct = st.slider(
-            "🌾 Cobertura de Rastrojo en Suelo (%)",
-            min_value=0, max_value=100, value=30, step=5,
-            help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
-        )
-
-        # 2. Vectores de anclaje (Mapeo de tu calibración previa al nuevo %)
-        # Asumimos: 0% (Baja), 30% (Media), 70% (Alta), 100% (Muy Densa)
-        x_cobertura = [0, 30, 70, 100] 
-        
-        # 3. Interpolación para el factor hídrico (Ke)
-        y_ke = [0.95, 0.50, 0.25, 0.10]
-        ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
-        
-        # 4. Interpolación para el factor térmico
-        y_mod_termico = [1.00, 0.95, 0.90, 0.80]
-        mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
+        # Envolvemos la sección en un contenedor con borde para destacarla
+        with st.container(border=True):
+            st.markdown("#### 🌾 Manejo de Superficie") # Un subtítulo opcional para darle contexto al recuadro
             
-        st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
+            # 1. Interfaz más intuitiva: Slider de 0% a 100%
+            cobertura_pct = st.slider(
+                "Cobertura de Rastrojo en Suelo (%)",
+                min_value=0, max_value=100, value=30, step=5,
+                help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
+            )
 
+            # 2. Vectores de anclaje (Mapeo de tu calibración previa al nuevo %)
+            x_cobertura = [0, 30, 70, 100] 
+            
+            # 3. Interpolación para el factor hídrico (Ke)
+            y_ke = [0.95, 0.50, 0.25, 0.10]
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
+            
+            # 4. Interpolación para el factor térmico
+            y_mod_termico = [1.00, 0.95, 0.90, 0.80]
+            mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
+                
+            st.caption(f"Coeficiente Ke dinámico: **{ke_val:.2f}** | Modulador Térmico: **{mod_termico:.2f}**")
+           
+    
+    
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
