@@ -16,12 +16,15 @@ import pandas as pd
 import plotly.graph_objects as go
 import pickle
 import io
+import time
 from datetime import timedelta
 from pathlib import Path
 from scipy.signal import find_peaks
 import base64
 
-# 1. PANTALLA DE CARGA ULTRARRÁPIDA
+# ---------------------------------------------------------
+# 1. PANTALLA DE CARGA ULTRARRÁPIDA (INDENTACIÓN CORREGIDA)
+# ---------------------------------------------------------
 if 'arranque_fase' not in st.session_state:
     st.set_page_config(page_title="PREDWEEM INTEGRAL", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -32,12 +35,13 @@ if 'arranque_fase' not in st.session_state:
     time.sleep(0.1)
     st.rerun()
 
-# ---------------------------------------------------------
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
-# ---------------------------------------------------------
+# Evita ejecutar set_page_config de nuevo
 if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
     st.session_state.arranque_fase = 2 
 
+# ---------------------------------------------------------
+# 2. CONFIGURACIÓN DE ESTILOS GLOBALES
+# ---------------------------------------------------------
 st.markdown("""
 <style>
     .main { background-color: #f8fafc; }
@@ -73,7 +77,6 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-# --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
     try:
         with open(main_bg_file, "rb") as image_file:
@@ -88,7 +91,7 @@ def set_bg_hack(main_bg_file):
 set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
-# 2. ROBUSTEZ Y ARCHIVOS (MOCKS)
+# 3. ROBUSTEZ Y ARCHIVOS (MOCKS)
 # ---------------------------------------------------------
 def create_mock_files_if_missing():
     if not (BASE / "IW.npy").exists():
@@ -108,7 +111,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA Y VALIDACIÓN
+# 4. LÓGICA TÉCNICA Y VALIDACIÓN
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -177,7 +180,6 @@ def load_data(file_uploader, default_name):
         return pd.read_excel(BASE / f"{default_name}.xlsx")
     return None
 
-# --- FUNCIONES DE INTEGRACIÓN Y VALIDACIÓN ---
 def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     df_sync = df_campo.copy()
     total_campo = df_sync[col_plm2].sum()
@@ -359,7 +361,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     }
 
 # ---------------------------------------------------------
-# 4. INTERFAZ PRINCIPAL Y SIDEBAR
+# 5. INTERFAZ PRINCIPAL Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
@@ -450,7 +452,7 @@ df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
 df_campo_raw = load_data(archivo_campo, "TRES_ARROYOS_campo")
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO
+# 6. MOTOR DE CÁLCULO
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
