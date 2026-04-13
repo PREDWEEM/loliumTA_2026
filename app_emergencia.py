@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
@@ -18,6 +17,7 @@
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
+# - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para la dinámica de picos.
 # ===============================================================
 
 import streamlit as st
@@ -431,6 +431,13 @@ if df is not None and modelo_ann is not None:
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
     
     # -----------------------------------------------------
+    # TRANSFORMACIÓN LOGARÍTMICA (Opción 2 Analítica)
+    # -----------------------------------------------------
+    c_log = 0.01
+    df["EMERREL_LOG"] = np.log10(df["EMERREL"] + c_log)
+    umbral_er_log = np.log10(umbral_er + c_log)
+
+    # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
     # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
@@ -457,12 +464,21 @@ if df is not None and modelo_ann is not None:
 
         with col_main:
             fig_emer = go.Figure()
+            # Usando la variable LOG en lugar de EMERREL normal
             fig_emer.add_trace(go.Scatter(
-                x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria Simulada',
+                x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)',
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
-            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
-            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350, hovermode="x unified")
+            # Ajustando la línea horizontal para que coincida con la escala LOG
+            fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
+            
+            # Etiquetado del eje Y aclarando la transformación
+            fig_emer.update_layout(
+                title="Dinámica de Emergencia y Detección de Picos (Escala Log Analítica)", 
+                yaxis_title="Log10(Emergencia + 0.01)",
+                height=350, 
+                hovermode="x unified"
+            )
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
@@ -590,7 +606,7 @@ if df is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_8.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_8_LOG.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos meteorológicos para comenzar.")
