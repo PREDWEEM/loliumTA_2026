@@ -1,11 +1,11 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.9 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM TRES ARROYOS 2026
 # Actualización:
-# - Validación: Match estricto de valores observados > 0 para correlación y dispersión.
-# - UI: Archivos (Clima/Campo) y Rastrojo (Slider Continuo + HTML) en expander principal.
+# - Validación: Match estricto de valores (Campo > 0 O Simulado > 0).
+# - Se eliminan los pares (0,0) para la correlación de flujos y el gráfico 1:1.
 # - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
-# - NUEVAS MÉTRICAS: RMSE de trayectoria, CCC (Concordancia), F1-Score de cohortes.
 # ===============================================================
 
 import streamlit as st
@@ -200,14 +200,16 @@ def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     return df_sync
 
 def calcular_metricas_validacion_integral(df_sync):
-    # FILTRO CRÍTICO: Solo considerar eventos con emergencia real para correlación de flujos
-    df_pos = df_sync[df_sync['Campo_Relativo'] > 0].copy()
+    # FILTRO CRÍTICO: Considerar cualquier día donde Campo > 0 O Simulado > 0
+    # Elimina los pares (0,0) pero penaliza Falsos Positivos y Falsos Negativos.
+    mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
+    df_activos = df_sync[mask_activos].copy()
     
-    if len(df_pos) < 2:
+    if len(df_activos) < 2:
         pearson_r = 0.0
     else:
-        obs = df_pos['Campo_Relativo'].values
-        sim = df_pos['Sim_Relativo'].values
+        obs = df_activos['Campo_Relativo'].values
+        sim = df_activos['Sim_Relativo'].values
         pearson_r = np.corrcoef(obs, sim)[0, 1] if np.std(obs) > 0 and np.std(sim) > 0 else 0.0
 
     # Trayectoria completa para métricas robustas de llenado de curva (RMSE y CCC)
@@ -578,7 +580,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         if df_campo is not None:
             st.markdown("<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (INTEGRAL)</p>", unsafe_allow_html=True)
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Correlación (Pearson)", f"{pearson_r:.3f}", "Sincronía (Solo valores > 0)")
+            c1.metric("Correlación (Pearson)", f"{pearson_r:.3f}", "Sincronía (Valores > 0)")
             c2.metric("Concordancia (CCC)", f"{ccc_acum:.3f}", "Fidelidad de Trayectoria")
             c3.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Magnitud de desvío", delta_color="inverse")
             c4.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
@@ -642,8 +644,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas de Monitoreo", yaxis_title="Emergencia Acumulada (%)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
 
             with col_disp:
-                # Filtrar solo puntos donde hubo emergencia observada para el 1:1 de flujos
-                df_disp = df_sincronizado[df_sincronizado['Campo_Relativo'] > 0]
+                # Filtrar puntos donde haya habido algún tipo de actividad (Campo > 0 O Sim > 0)
+                mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
+                df_disp = df_sincronizado[mask_disp]
                 
                 fig_1to1 = go.Figure()
                 fig_1to1.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
@@ -651,12 +654,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     x=df_disp['Campo_Relativo'], 
                     y=df_disp['Sim_Relativo'], 
                     mode='markers', 
-                    name='Valores > 0',
+                    name='Eventos Activos',
                     marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')),
                     text=df_disp[col_fecha].dt.strftime('%d-%m-%Y'),
                     hovertemplate="<b>%{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
                 ))
-                st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos (Valores > 0)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=400, showlegend=False), use_container_width=True)
+                st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos (Valores Activos > 0)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=400, showlegend=False), use_container_width=True)
 
     with tab2:
         st.header("💧 Dinámica Hídrica del Suelo")
@@ -702,10 +705,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Flujos > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)', 'F1-Score Cohortes', 'Picos Coincidentes (TP)', 'Reposos Coincidentes (TN)', 'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50, cohort_metrics['f1_score'], cohort_metrics['tp'], cohort_metrics['tn'], cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)', 'F1-Score Cohortes', 'Picos Coincidentes (TP)', 'Reposos Coincidentes (TN)', 'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50, cohort_metrics['f1_score'], cohort_metrics['tp'], cohort_metrics['tn'], cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_9.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_10.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
