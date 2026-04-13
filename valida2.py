@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM TRES ARROYOS 2026
@@ -6,6 +5,7 @@
 # - Validación: Match estricto de valores (Campo > 0 O Simulado > 0).
 # - Se eliminan los pares (0,0) para la correlación de flujos y el gráfico 1:1.
 # - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
+# - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
 # ===============================================================
 
 import streamlit as st
@@ -569,6 +569,15 @@ if df_meteo_raw is not None and modelo_ann is not None:
             lead_time = (fecha_control - (df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana)).days
 
     # -----------------------------------------------------
+    # TRANSFORMACIÓN LOGARÍTMICA (Opción 2 Analítica)
+    # -----------------------------------------------------
+    c_log = 0.01
+    df["EMERREL_LOG"] = np.log10(df["EMERREL"] + c_log)
+    umbral_er_log = np.log10(umbral_er + c_log)
+    if df_campo is not None:
+        df_campo['Campo_Normalizado_LOG'] = np.log10(df_campo['Campo_Normalizado'] + c_log)
+
+    # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
     colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
@@ -604,22 +613,25 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
         with col_main:
             fig_emer = go.Figure()
-            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria Simulada', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
-            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
+            # Usando EMERREL_LOG en lugar de EMERREL
+            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
+            fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
             if df_campo is not None:
-                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], mode='markers+lines', name='Recuentos a Campo', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
+                # Usando Campo_Normalizado_LOG
+                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos a Campo (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
                 
-                if cohort_metrics['tp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tp_points']], y=[p[1] for p in cohort_metrics['tp_points']], mode='markers', name='✅ TP', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
-                if cohort_metrics['tn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tn_points']], y=[p[1] for p in cohort_metrics['tn_points']], mode='markers', name='✅ TN', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
-                if cohort_metrics['fp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fp_points']], y=[p[1] for p in cohort_metrics['fp_points']], mode='markers', name='❌ FP', marker=dict(color='#ef4444', size=12, symbol='x', line=dict(width=2, color='DarkRed'))))
-                if cohort_metrics['fn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fn_points']], y=[p[1] for p in cohort_metrics['fn_points']], mode='markers', name='⚠️ FN', marker=dict(color='#f97316', size=12, symbol='triangle-up', line=dict(width=1, color='Black'))))
+                # Transformando dinámicamente los puntos Y de las métricas
+                if cohort_metrics['tp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tp_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['tp_points']], mode='markers', name='✅ TP', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
+                if cohort_metrics['tn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tn_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['tn_points']], mode='markers', name='✅ TN', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
+                if cohort_metrics['fp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fp_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['fp_points']], mode='markers', name='❌ FP', marker=dict(color='#ef4444', size=12, symbol='x', line=dict(width=2, color='DarkRed'))))
+                if cohort_metrics['fn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fn_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['fn_points']], mode='markers', name='⚠️ FN', marker=dict(color='#f97316', size=12, symbol='triangle-up', line=dict(width=1, color='Black'))))
 
             if fecha_control:
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
 
-            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico (Escala Log Analítica)", yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
