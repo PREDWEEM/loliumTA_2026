@@ -326,7 +326,7 @@ w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0
 
 st.sidebar.divider()
 st.sidebar.markdown("## 🌧️ 4. Gatillo Dinámico de Recarga")
-umbral_lluvia_max = st.sidebar.number_input("Umbral Gatillo Máximo (mm)", value=40.0, step=5.0, help="Lluvia necesaria a principio de temporada para activar emergencia.")
+umbral_lluvia_max = st.sidebar.number_input("Umbral Gatillo Máximo (mm)", value=15.0, step=5.0, help="Lluvia necesaria a principio de temporada para activar emergencia.")
 tasa_decaimiento = st.sidebar.slider("Tasa de Decaimiento (k)", 0.01, 0.15, 0.05, step=0.01, help="Velocidad con la que disminuye el requerimiento de lluvia con el tiempo.")
 dia_inicio_decaimiento = st.sidebar.number_input("Día Juliano Inicio Decaimiento", value=60, step=5, help="Día a partir del cual el umbral de activación comienza a disminuir.")
 
