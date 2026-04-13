@@ -323,7 +323,7 @@ umbral_termoinhibicion = st.sidebar.number_input(
 
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
-    min_value=20.0, max_value=100.0, value=10.0, 
+    min_value=20.0, max_value=100.0, value=30.0, 
     help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
 )
 
@@ -341,7 +341,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=17.0, step=1.0)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
