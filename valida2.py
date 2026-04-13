@@ -6,6 +6,7 @@
 # - Se eliminan los pares (0,0) para la correlación de flujos y el gráfico 1:1.
 # - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
 # - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
+# - SIMPLIFICACIÓN: Se eliminan las métricas de sincronía de pulsos/cohortes.
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +18,6 @@ import io
 import time
 from datetime import timedelta
 from pathlib import Path
-from scipy.signal import find_peaks
 import base64
 
 # ---------------------------------------------------------
@@ -200,8 +200,6 @@ def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     return df_sync
 
 def calcular_metricas_validacion_integral(df_sync):
-    # FILTRO CRÍTICO: Considerar cualquier día donde Campo > 0 O Simulado > 0
-    # Elimina los pares (0,0) pero penaliza Falsos Positivos y Falsos Negativos.
     mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
     df_activos = df_sync[mask_activos].copy()
     
@@ -212,7 +210,6 @@ def calcular_metricas_validacion_integral(df_sync):
         sim = df_activos['Sim_Relativo'].values
         pearson_r = np.corrcoef(obs, sim)[0, 1] if np.std(obs) > 0 and np.std(sim) > 0 else 0.0
 
-    # Trayectoria completa para métricas robustas de llenado de curva (RMSE y CCC)
     obs_acum, sim_acum = df_sync['Campo_Acumulado'].values, df_sync['Sim_Acumulado'].values
     rmse_acumulado = np.sqrt(np.mean((obs_acum - sim_acum)**2))
     
@@ -223,150 +220,6 @@ def calcular_metricas_validacion_integral(df_sync):
     
     return {"Pearson_Flujos": pearson_r, "RMSE_Acumulado": rmse_acumulado, "CCC_Acumulado": ccc_acumulado}
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=7, min_dist_picos=7, umbral_min_pico=0.01):
-    sim_dates, sim_vals = df_sim['Fecha'].values, df_sim['EMERREL'].values
-    obs_dates, obs_vals = df_campo[col_fecha].values, df_campo[col_plm2].values
-    obs_vals_norm = df_campo['Campo_Normalizado'].values
-    sim_vals_peaks = sim_vals.copy()
-    max_obs_date = pd.to_datetime(obs_dates.max())
-    
-    # Padding y picos simulados
-    sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
-    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=umbral_min_pico, distance=1)
-    peaks_sim = peaks_sim_padded - 1
-    peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
-    sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
-    
-    # Detección agronómica observada
-    min_h_obs = np.max(obs_vals) * 0.05 if np.max(obs_vals) > 0 else 0.01
-    peaks_obs = np.where(obs_vals >= min_h_obs)[0]
-    obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
-    
-    # Filtro de picos simulados contiguos
-    skip_indices = set()
-    i = 0
-    while i < len(sim_peak_dates):
-        grupo_contiguos = [i]
-        j = i + 1
-        while j < len(sim_peak_dates) and (sim_peak_dates[j] - sim_peak_dates[j-1]).days <= min_dist_picos:
-            grupo_contiguos.append(j)
-            j += 1
-
-        if len(grupo_contiguos) > 1:
-            mejor_idx = grupo_contiguos[0]
-            min_distancia_global = float('inf')
-            for idx in grupo_contiguos:
-                dist_minima_local = min([abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]) if len(obs_peak_dates) > 0 else float('inf')
-                if dist_minima_local < min_distancia_global:
-                    min_distancia_global = dist_minima_local
-                    mejor_idx = idx
-                elif dist_minima_local == min_distancia_global and sim_vals[peaks_sim[idx]] > sim_vals[peaks_sim[mejor_idx]]:
-                    mejor_idx = idx
-
-            for idx in grupo_contiguos:
-                if idx != mejor_idx:
-                    es_flanqueante = False
-                    for obs_date in obs_peak_dates:
-                        d_idx, d_mejor = sim_peak_dates[idx], sim_peak_dates[mejor_idx]
-                        if (d_idx <= obs_date <= d_mejor) or (d_mejor <= obs_date <= d_idx):
-                            es_flanqueante = True
-                            break
-                    if not es_flanqueante: skip_indices.add(idx)
-        i = j
-
-    # Aplanamiento de ecos
-    zeroed_indices = []
-    umbral_base = 0.05 
-    for idx in skip_indices:
-        p_idx = peaks_sim[idx]
-        k = p_idx
-        while k >= 0 and sim_vals[k] >= umbral_base:
-            zeroed_indices.append(k)
-            if k > 0 and sim_vals[k-1] > sim_vals[k]: break
-            k -= 1
-        k = p_idx + 1
-        while k < len(sim_vals) and sim_vals[k] >= umbral_base:
-            zeroed_indices.append(k)
-            if k < len(sim_vals) - 1 and sim_vals[k+1] > sim_vals[k]: break
-            k += 1
-
-    zeroed_indices = list(set(zeroed_indices))
-    for z_idx in zeroed_indices: sim_vals_peaks[z_idx] = 0.0
-
-    # Best-Match-First
-    valid_pairs = []
-    for i, sim_date in enumerate(sim_peak_dates):
-        if i in skip_indices: continue
-        for j, obs_date in enumerate(obs_peak_dates):
-            days_diff = (obs_date - sim_date).days
-            if -tol_retraso <= days_diff <= tol_anticipo:
-                valid_pairs.append((i, j, days_diff, abs(days_diff) + (abs(i - j) * 0.001)))
-                
-    valid_pairs.sort(key=lambda x: x[3])
-    
-    tp_points, fp_points, fn_points, tn_points = [], [], [], []
-    matched_sim, matched_obs, matched_links, offsets = set(), set(), [], []
-    
-    for sim_idx, obs_idx, diff, _ in valid_pairs:
-        if obs_idx not in matched_obs:
-            crossing = any((sim_idx > m_sim and obs_idx < m_obs) or (sim_idx < m_sim and obs_idx > m_obs) for m_sim, m_obs in matched_links)
-            if not crossing and sim_idx not in matched_sim:
-                tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
-                matched_sim.add(sim_idx); matched_obs.add(obs_idx)
-                matched_links.append((sim_idx, obs_idx)); offsets.append(diff)
-
-    for i in range(len(sim_peak_dates)):
-        if i not in matched_sim and i not in skip_indices:
-            sim_date_i = sim_peak_dates[i]
-            for m_sim, m_obs in matched_links:
-                obs_date, sim_date_m = obs_peak_dates[m_obs], sim_peak_dates[m_sim]
-                if (sim_date_i <= obs_date <= sim_date_m) or (sim_date_m <= obs_date <= sim_date_i):
-                    picos_intermedios = sum(1 for k in range(min(i, m_sim) + 1, max(i, m_sim)) if k not in skip_indices)
-                    if picos_intermedios == 0 and -tol_retraso <= (obs_date - sim_date_i).days <= tol_anticipo:
-                        tp_points.append((sim_date_i, sim_vals[peaks_sim[i]]))
-                        matched_sim.add(i)
-                        break
-
-    for i in range(len(sim_peak_dates)):
-        if i not in matched_sim and i not in skip_indices and sim_peak_dates[i] <= max_obs_date:
-            es_error_real = True
-            sim_date_i = sim_peak_dates[i]
-            for obs_idx in matched_obs:
-                if -tol_retraso <= (obs_peak_dates[obs_idx] - sim_date_i).days <= tol_anticipo:
-                    es_error_real = False; break
-            if es_error_real:
-                for m_sim in matched_sim:
-                    if abs((sim_date_i - sim_peak_dates[m_sim]).days) <= min_dist_picos:
-                        es_error_real = False; break
-            if es_error_real: fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
-
-    for j in range(len(obs_peak_dates)):
-        if j not in matched_obs:
-            obs_idx = peaks_obs[j]
-            es_tn_encubierto = False
-            if obs_vals_norm[obs_idx] < 0.05:
-                sim_idx_arr = np.where(sim_dates == obs_dates[obs_idx])[0]
-                if len(sim_idx_arr) > 0 and sim_vals[sim_idx_arr[0]] < umbral_min_pico: es_tn_encubierto = True
-            if not es_tn_encubierto: fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
-
-    for j, obs_date in enumerate(obs_dates):
-        if obs_vals_norm[j] < 0.05:
-            sim_idx_arr = np.where(sim_dates == obs_date)[0]
-            if len(sim_idx_arr) > 0 and sim_vals[sim_idx_arr[0]] < umbral_min_pico:
-                tn_points.append((pd.to_datetime(obs_date), sim_vals[sim_idx_arr[0]]))
-                
-    tp, fp, fn, tn = len(matched_obs), len(fp_points), len(fn_points), len(tn_points)
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    
-    return {
-        "f1_score": 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0,
-        "precision": precision, "recall": recall, "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-        "mean_offset": np.mean(offsets) if offsets else 0.0,
-        "tp_points": tp_points, "fp_points": fp_points, "fn_points": fn_points, "tn_points": tn_points,
-        "zeroed_indices": zeroed_indices
-    }
-
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
 # ---------------------------------------------------------
@@ -374,7 +227,6 @@ modelo_ann, cluster_model = load_models()
 
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
 
-# --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
 with st.expander("📂 1. Datos del Lote y Manejo", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
     
@@ -442,17 +294,8 @@ st.sidebar.markdown("**Objetivos (°Cd)**")
 dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
-st.sidebar.markdown("## 🧪 3. Validación")
-col_v1, col_v2 = st.sidebar.columns(2)
-with col_v1: tol_anticipo = st.number_input("Anticipo (+)", value=14, step=1)
-with col_v2: tol_retraso = st.number_input("Retraso (-)", value=7, step=1) 
-
-col_p1, col_p2 = st.sidebar.columns(2)
-with col_p1: min_dist_picos = st.number_input("Separación Flushes (días)", 1, 45, 1, 1)
-with col_p2: umbral_pico_sim = st.number_input("Umbral Mín. Pico Sim", value=0.20, step=0.05)
-
 st.sidebar.divider()
-st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
+st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
 
 df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
@@ -538,16 +381,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Métricas Robustas
     pearson_r, rmse_acum, ccc_acum = 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "tn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
         df_sincronizado = sincronizar_series_por_intervalos(df, df_campo, col_fecha, col_plm2)
         metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
         pearson_r, rmse_acum, ccc_acum = metricas_robustas["Pearson_Flujos"], metricas_robustas["RMSE_Acumulado"], metricas_robustas["CCC_Acumulado"]
         df_campo["Sim_Intervalo"] = df_sincronizado["Sim_Relativo"] 
-        
-        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
-        if cohort_metrics.get("zeroed_indices"): df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
         tot_plm2 = df_campo[col_plm2].sum()
         if tot_plm2 > 0:
@@ -594,13 +433,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
             c3.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Magnitud de desvío", delta_color="inverse")
             c4.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
 
-            st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 SINCRONÍA DE COHORTES (PULSOS)</p>", unsafe_allow_html=True)
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("F1-Score", f"{cohort_metrics['f1_score']:.2f}", f"Ventana (+{tol_anticipo} / -{tol_retraso} d)", delta_color="normal")
-            k2.metric("Aciertos (TP | TN)", f"{cohort_metrics['tp']} | {cohort_metrics['tn']}", "Picos | Ceros Coincidentes")
-            k3.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Inventados / Omitidos", delta_color="inverse")
-            k4.metric("Sesgo Medio (Picos)", f"{cohort_metrics['mean_offset']:+.1f} d", "Anticipo Medio" if cohort_metrics['mean_offset'] < 0 else "Atraso Medio" if cohort_metrics['mean_offset'] > 0 else "Sincronizado", delta_color="inverse" if cohort_metrics['mean_offset'] > 0 else "normal" if cohort_metrics['mean_offset'] < 0 else "off")
-            
             if fecha_control:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL</p>", unsafe_allow_html=True)
                 l1, l2, l3 = st.columns(3)
@@ -613,19 +445,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
         with col_main:
             fig_emer = go.Figure()
-            # Usando EMERREL_LOG en lugar de EMERREL
             fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
             fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
             if df_campo is not None:
-                # Usando Campo_Normalizado_LOG
                 fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos a Campo (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
-                
-                # Transformando dinámicamente los puntos Y de las métricas
-                if cohort_metrics['tp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tp_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['tp_points']], mode='markers', name='✅ TP', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
-                if cohort_metrics['tn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['tn_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['tn_points']], mode='markers', name='✅ TN', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
-                if cohort_metrics['fp_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fp_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['fp_points']], mode='markers', name='❌ FP', marker=dict(color='#ef4444', size=12, symbol='x', line=dict(width=2, color='DarkRed'))))
-                if cohort_metrics['fn_points']: fig_emer.add_trace(go.Scatter(x=[p[0] for p in cohort_metrics['fn_points']], y=[np.log10(p[1] + c_log) for p in cohort_metrics['fn_points']], mode='markers', name='⚠️ FN', marker=dict(color='#f97316', size=12, symbol='triangle-up', line=dict(width=1, color='Black'))))
 
             if fecha_control:
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
@@ -656,7 +480,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas de Monitoreo", yaxis_title="Emergencia Acumulada (%)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
 
             with col_disp:
-                # Filtrar puntos donde haya habido algún tipo de actividad (Campo > 0 O Sim > 0)
                 mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
                 df_disp = df_sincronizado[mask_disp]
                 
@@ -717,10 +540,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)', 'F1-Score Cohortes', 'Picos Coincidentes (TP)', 'Reposos Coincidentes (TN)', 'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50, cohort_metrics['f1_score'], cohort_metrics['tp'], cohort_metrics['tn'], cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_10.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_10_clean.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
