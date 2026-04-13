@@ -1,21 +1,23 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM OPERATIVO vK4.9.9 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM TRES ARROYOS 2026
 # Actualización:
 # - UI: "Datos del Lote" movido a st.expander en la página principal.
-# - ADAPTACIÓN TRES ARROYOS: Coordenadas mantenidas estrictamente en -38.45.
+# - ADAPTACIÓN TRES ARROYOS: Coordenadas mantenidas estrictamente en -38.45 según indicación.
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * Eliminado el forzado empírico de 20 mm.
 #   * Eliminada la restricción histórica de 21 días / 50 mm para enero.
 # - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
-# - NUEVO (vK4.9.9): Gatillo Hídrico Dinámico (Decaimiento Exponencial) para recarga inicial.
+# - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud: -38.45)
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud mantenida: -38.45)
 # - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo (slider continuo).
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
-# - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict y numpy.where.
+# - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
+# - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # ===============================================================
 
 import streamlit as st
@@ -42,6 +44,7 @@ if 'arranque_fase' not in st.session_state:
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
+# Evita ejecutar set_page_config de nuevo si ya pasó la fase inicial
 if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
     st.session_state.arranque_fase = 2 
 
@@ -75,7 +78,7 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* ——— CORRECCIÓN DEFINITIVA ——— */
+    /* ——— CORRECCIÓN DEFINITIVA: Múltiples selectores para atrapar el recuadro bordeado ——— */
     div[data-testid="stVerticalBlockBorderWrapper"], 
     div[data-testid="stContainerBorder"],
     div[data-testid="stContainer"] > div > div[style*="border"],
@@ -91,7 +94,11 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
+# --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
+    """
+    Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
+    """
     try:
         with open(main_bg_file, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode()
@@ -110,8 +117,9 @@ def set_bg_hack(main_bg_file):
             unsafe_allow_html=True
         )
     except FileNotFoundError:
-        pass
+        pass # Evita crasheos si la imagen no se encuentra
 
+# --- LLAMA A LA FUNCIÓN ---
 set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
@@ -164,6 +172,7 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
+    # Latitud mantenida estrictamente en -38.45
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -179,6 +188,7 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
+# Secado dinámico con factor Kr
 def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
@@ -260,8 +270,10 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
+# --- HEADER PRINCIPAL ---
 st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS (BA) lat=-38.378223 lon=-60.276321 ")
 
+# --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
     
@@ -270,18 +282,25 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         df = get_data(archivo_usuario)
         
     with col_rastrojo:
+        # Envolvemos la sección en un contenedor con borde para destacarla
         with st.container(border=True):
             st.markdown("#### 🌾 Manejo de Superficie") 
+            
+            # 1. Interfaz intuitiva: Slider de 0% a 100%
             cobertura_pct = st.slider(
                 "Cobertura de Rastrojo en Suelo (%)",
                 min_value=0, max_value=100, value=50, step=5,
                 help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
             )
 
+            # 2. Vectores de anclaje
             x_cobertura = [0, 30, 70, 100] 
+            
+            # 3. Interpolación para el factor hídrico (Ke)
             y_ke = [0.95, 0.50, 0.25, 0.10]
             ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
             
+            # 4. Interpolación para el factor térmico
             y_mod_termico = [1.00, 0.95, 0.90, 0.80]
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
                 
@@ -293,7 +312,7 @@ st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.30)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.50)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input(
@@ -324,14 +343,8 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
 
-st.sidebar.divider()
-st.sidebar.markdown("## 🌧️ 4. Gatillo Dinámico de Recarga")
-umbral_lluvia_max = st.sidebar.number_input("Umbral Gatillo Máximo (mm)", value=15.0, step=5.0, help="Lluvia necesaria a principio de temporada para activar emergencia.")
-tasa_decaimiento = st.sidebar.slider("Tasa de Decaimiento (k)", 0.01, 0.15, 0.05, step=0.01, help="Velocidad con la que disminuye el requerimiento de lluvia con el tiempo.")
-dia_inicio_decaimiento = st.sidebar.number_input("Día Juliano Inicio Decaimiento", value=60, step=5, help="Día a partir del cual el umbral de activación comienza a disminuir.")
-
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO
+# 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
     
@@ -346,39 +359,40 @@ if df is not None and modelo_ann is not None:
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
 
-    # --- B. PREDICCIÓN NEURAL PURA ---
+    # --- B. PREDICCIÓN NEURAL PURA (Usando la Temperatura del Suelo) ---
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # --- BYPASS AGRONÓMICO ---
-    limite_juliano_temprano = 110
+    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+    limite_juliano_temprano = 110 # Aprox. 20 de Abril
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
-    # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA ---
+    # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
+    # 1. Calculamos la Evapotranspiración (ET0) - Latitud mantenida en -38.45
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
+    
+    # 2. Ejecutamos el Balance Hídrico Superficial (Actualizado con Ke Dinámico)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
+    # 3. Factor Hídrico basado en la humedad real retenida
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+    
+    # Multiplicador final (Sin forzados empíricos)
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
+    # 4. CORTE HÍDRICO ESTRICTO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
 
-    # 5. TRIGGER DE RECARGA INICIAL (Umbral Dinámico Exponencial)
-    df['Umbral_Dinamico'] = np.where(
-        df['Julian_days'] >= dia_inicio_decaimiento,
-        w_max_val + (umbral_lluvia_max - w_max_val) * np.exp(-tasa_decaimiento * (df['Julian_days'] - dia_inicio_decaimiento)),
-        umbral_lluvia_max
-    )
-
-    df['Lluvia_Recarga'] = (df['Prec'] >= df['Umbral_Dinamico']).cummax()
+    # 5. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
+    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO
+    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d - del aire)
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
@@ -419,6 +433,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
+    # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
     colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
@@ -494,6 +509,7 @@ if df is not None and modelo_ann is not None:
         
         fig_hidrico = go.Figure()
         
+        # Barras de Precipitación
         fig_hidrico.add_trace(go.Bar(
             x=df["Fecha"], 
             y=df["Prec"], 
@@ -502,6 +518,7 @@ if df is not None and modelo_ann is not None:
             opacity=0.7
         ))
         
+        # Línea de Agua retenida en el suelo
         fig_hidrico.add_trace(go.Scatter(
             x=df["Fecha"], 
             y=df["W_superficial"], 
@@ -512,6 +529,7 @@ if df is not None and modelo_ann is not None:
             fillcolor='rgba(2, 132, 199, 0.2)'
         ))
 
+        # Límite de la caja
         fig_hidrico.add_hline(
             y=w_max_val, 
             line_dash="dot", 
@@ -571,21 +589,8 @@ if df is not None and modelo_ann is not None:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        
-        # Agregamos las nuevas variables a la pestaña de parámetros exportados
-        params_df = pd.DataFrame({
-            'Configuracion': [
-                'T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 
-                'Umbral_Termoinhibicion', 'Umbral_Max_Decaimiento', 'Tasa_K', 'Dia_Inicio_K'
-            ], 
-            'Valor': [
-                t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, 
-                umbral_termoinhibicion, umbral_lluvia_max, tasa_decaimiento, dia_inicio_decaimiento
-            ]
-        })
-        params_df.to_excel(writer, sheet_name='Bio_Params', index=False)
-        
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_9.xlsx")
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_TresArroyos_vK4_9_8.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos meteorológicos para comenzar.")
