@@ -317,7 +317,7 @@ umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input(
     "Umbral Termoinhibición (°C)", 
-    min_value=15.0, max_value=35.0, value=26.0, step=0.5,
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
     help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
 )
 
@@ -341,7 +341,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
