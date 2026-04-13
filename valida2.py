@@ -216,7 +216,7 @@ def calcular_metricas_validacion_integral(df_sync):
     
     return {"Pearson_Flujos": pearson_r, "RMSE_Acumulado": rmse_acumulado, "CCC_Acumulado": ccc_acumulado}
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=7, min_dist_picos=7, umbral_min_pico=0.3):
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=7, min_dist_picos=7, umbral_min_pico=0.01):
     sim_dates, sim_vals = df_sim['Fecha'].values, df_sim['EMERREL'].values
     obs_dates, obs_vals = df_campo[col_fecha].values, df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
