@@ -446,7 +446,7 @@ with col_p2: umbral_pico_sim = st.number_input("Umbral Mín. Pico Sim", value=0.
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
 
 df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
 df_campo_raw = load_data(archivo_campo, "TRES_ARROYOS_campo")
