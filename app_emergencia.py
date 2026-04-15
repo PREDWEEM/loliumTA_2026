@@ -312,7 +312,7 @@ st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.05)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.01, 0.80, 0.01)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input(
