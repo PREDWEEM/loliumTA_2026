@@ -341,7 +341,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
