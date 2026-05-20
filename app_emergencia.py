@@ -397,6 +397,23 @@ if df is not None and modelo_ann is not None:
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
+
+    # ===============================================================
+    # 7. AJUSTES POBLACIONALES: LATENCIA Y AGOTAMIENTO DE COHORTE
+    # ===============================================================
+    # A. Latencia inicial (Dormición Primaria)
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+
+    # B. Agotamiento Dinámico del Banco de Semillas
+    emergencia_bruta_acumulada = df['EMERREL'].cumsum()
+    total_emergencia_esperada = df['EMERREL'].sum()
+    
+    if total_emergencia_esperada > 0:
+        df['Factor_Agotamiento'] = 1.0 - (emergencia_bruta_acumulada / total_emergencia_esperada)
+        df['Factor_Agotamiento'] = np.clip(df['Factor_Agotamiento'], 0.0, 1.0)
+        df['EMERREL'] = df['EMERREL'] * df['Factor_Agotamiento']
+    # ===============================================================
+   
     
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
