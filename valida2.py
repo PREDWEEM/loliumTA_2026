@@ -2,11 +2,14 @@
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM TRES ARROYOS 2026
 # Actualización:
-# - Validación: Match estricto de valores (Campo > 0 O Simulado > 0).
-# - Se eliminan los pares (0,0) para la correlación de flujos y el gráfico 1:1.
+# - ADAPTACIÓN TRES ARROYOS: Coordenadas mantenidas en -38.45 para ET0.
+# - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
+# - CALIBRACIÓN SITIO: Capacidad de campo ajustada a 15 mm.
+# - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
+# - MÉTRICAS INTER-SITIO: Incorporación de NSE y KGE sobre flujos dinámicos.
+# - DINÁMICA HÍDRICA: Conserva Secado exponencial del suelo (Factor Kr) en BHS.
 # - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
 # - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
-# - SIMPLIFICACIÓN: Se eliminan las métricas de sincronía de pulsos/cohortes.
 # ===============================================================
 
 import streamlit as st
@@ -24,7 +27,7 @@ import base64
 # 1. PANTALLA DE CARGA ULTRARRÁPIDA
 # ---------------------------------------------------------
 if 'arranque_fase' not in st.session_state:
-    st.set_page_config(page_title="PREDWEEM INTEGRAL", layout="wide", page_icon="🌾")
+    st.set_page_config(page_title="PREDWEEM TRES ARROYOS INTEGRAL", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.info("🚜 **Iniciando Servidor PREDWEEM Integral...** Cargando módulos de validación.")
     st.progress(20)
@@ -69,6 +72,17 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    div[data-testid="stVerticalBlockBorderWrapper"], 
+    div[data-testid="stContainerBorder"],
+    div[data-testid="stContainer"] > div > div[style*="border"],
+    div[data-testid="stVerticalBlock"] > div[style*="border-radius"] {
+        background-color: #ffffff !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+        padding: 15px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,7 +140,8 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     elif t < t_crit: return (t - t_base) * ((t_crit - t) / (t_crit - t_opt))
     else: return 0.0
 
-def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.37):
+def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
+    # Latitud ajustada para Tres Arroyos (-38.45)
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -137,12 +152,15 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.37):
     trange = np.maximum(tmax - tmin, 0)
     return np.maximum(0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange), 0)
 
-def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
+# Factor Kr - Secado exponencial
+def balance_hidrico_superficial(prec, et0, w_max=15.0, ke_suelo=0.4):
     n = len(prec)
     w = np.zeros(n)
     w[0] = w_max / 2.0 
     for i in range(1, n):
-        evaporacion_real = et0[i] * ke_suelo
+        kr = w[i-1] / w_max  
+        ke_dinamico = ke_suelo * kr
+        evaporacion_real = et0[i] * ke_dinamico
         w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
     return w
 
@@ -175,7 +193,12 @@ def load_data(file_uploader, default_name):
         return pd.read_csv(BASE / f"{default_name}.csv")
     elif (BASE / f"{default_name}.xlsx").exists():
         return pd.read_excel(BASE / f"{default_name}.xlsx")
-    return None
+    
+    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/{default_name}.csv"
+    try:
+        return pd.read_csv(github_url)
+    except:
+        return None
 
 def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
     df_sync = df_campo.copy()
@@ -204,75 +227,96 @@ def calcular_metricas_validacion_integral(df_sync):
     df_activos = df_sync[mask_activos].copy()
     
     if len(df_activos) < 2:
-        pearson_r = 0.0
+        pearson_r, nse_flujos, kge_flujos = 0.0, 0.0, 0.0
     else:
         obs = df_activos['Campo_Relativo'].values
         sim = df_activos['Sim_Relativo'].values
-        pearson_r = np.corrcoef(obs, sim)[0, 1] if np.std(obs) > 0 and np.std(sim) > 0 else 0.0
+        
+        std_obs, std_sim = np.std(obs), np.std(sim)
+        pearson_r = np.corrcoef(obs, sim)[0, 1] if std_obs > 0 and std_sim > 0 else 0.0
+        
+        var_obs_sum = np.sum((obs - np.mean(obs))**2)
+        nse_flujos = 1 - (np.sum((sim - obs)**2) / var_obs_sum) if var_obs_sum > 0 else 0.0
+        
+        if np.mean(obs) > 0 and std_obs > 0:
+            r = pearson_r
+            alpha = std_sim / std_obs
+            beta = np.mean(sim) / np.mean(obs)
+            kge_flujos = 1 - np.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
+        else:
+            kge_flujos = 0.0
 
     obs_acum, sim_acum = df_sync['Campo_Acumulado'].values, df_sync['Sim_Acumulado'].values
     rmse_acumulado = np.sqrt(np.mean((obs_acum - sim_acum)**2))
     
-    mean_obs, mean_sim = np.mean(obs_acum), np.mean(sim_acum)
-    var_obs, var_sim = np.var(obs_acum), np.var(sim_acum)
-    covar = np.mean((obs_acum - mean_obs) * (sim_acum - mean_sim))
-    ccc_acumulado = (2 * covar) / (var_obs + var_sim + (mean_obs - mean_sim)**2) if (var_obs + var_sim) > 0 else 0.0
+    mean_obs_ac, mean_sim_ac = np.mean(obs_acum), np.mean(sim_acum)
+    var_obs_ac, var_sim_ac = np.var(obs_acum), np.var(sim_acum)
+    covar_ac = np.mean((obs_acum - mean_obs_ac) * (sim_acum - mean_sim_ac))
     
-    return {"Pearson_Flujos": pearson_r, "RMSE_Acumulado": rmse_acumulado, "CCC_Acumulado": ccc_acumulado}
+    denominador_ccc = var_obs_ac + var_sim_ac + (mean_obs_ac - mean_sim_ac)**2
+    ccc_acumulado = (2 * covar_ac) / denominador_ccc if denominador_ccc > 0 else 0.0
+    
+    return {
+        "Pearson_Flujos": pearson_r, 
+        "NSE_Flujos": nse_flujos,
+        "KGE_Flujos": kge_flujos,
+        "RMSE_Acumulado": rmse_acumulado, 
+        "CCC_Acumulado": ccc_acumulado
+    }
 
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.title("🌾 PREDWEEM LOLIUM - TRES ARROYOS 2026")
+st.title("🌾 PREDWEEM by GUILLERMO R. CHANTRE — TRES ARROYOS (BA) lat=-38.45 lon=-60.276321")
 
-with st.expander("📂 1. Datos del Lote y Manejo", expanded=True):
+with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
     
     with col_upload:
-        st.markdown("#### 📁 Carga de Datos")
-        archivo_meteo = st.file_uploader("1. Clima (Requerido)", type=["xlsx", "csv"])
-        archivo_campo = st.file_uploader("2. Campo (Opcional - Validación)", type=["xlsx", "csv"])
+        archivo_meteo = st.file_uploader("1. Clima (Tres Arroyos)", type=["xlsx", "csv"])
+        archivo_campo = st.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
         
     with col_rastrojo:
-        st.markdown("#### 🌾 Manejo de Superficie")
-        cobertura_pct = st.slider(
-            "Cobertura de Rastrojo en Suelo (%)",
-            min_value=0, max_value=100, value=50, step=5,
-            help="0% = Suelo desnudo / Labranza. 100% = Cobertura total (Ej. Cultivo de Servicio)."
-        )
+        with st.container(border=True):
+            st.markdown("#### 🌾 Manejo de Superficie")
+            cobertura_pct = st.slider(
+                "Cobertura de Rastrojo en Suelo (%)",
+                min_value=0, max_value=100, value=50, step=5,
+                help="0% = Suelo desnudo / Labranza. 100% = Cobertura total (Ej. Cultivo de Servicio)."
+            )
 
-        x_cobertura = [0, 30, 70, 100]
-        ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.50, 0.25, 0.10]))
-        mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
+            x_cobertura = [0, 30, 70, 100]
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.50, 0.25, 0.10]))
+            mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
 
-        html_card = f"""
-        <div style="
-            background-color: #ffffff;
-            padding: 15px 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            border: 1px solid #e2e8f0;
-            margin-top: 15px;
-        ">
-            <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
-                Parámetros Dinámicos Aplicados
-            </h5>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
-                <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
+            html_card = f"""
+            <div style="
+                background-color: #ffffff;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                border: 1px solid #e2e8f0;
+                margin-top: 15px;
+            ">
+                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
+                    Parámetros Dinámicos Aplicados
+                </h5>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
+                    <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
+                    <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
+                </div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
-                <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
-            </div>
-        </div>
-        """
-        st.markdown(html_card, unsafe_allow_html=True)
+            """
+            st.markdown(html_card, unsafe_allow_html=True)
 
 # --- SIDEBAR ---
-st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png", use_container_width=True)
+st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_TA2026/main/logo.png", use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.01, 0.80, 0.01)
@@ -298,8 +342,8 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-df_meteo_raw = load_data(archivo_meteo, "TRES_ARROYOS")
-df_campo_raw = load_data(archivo_campo, "TRES_ARROYOS_campo")
+df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
+df_campo_raw = load_data(archivo_campo, "tres_arroyos_campo")
 
 # ---------------------------------------------------------
 # 6. MOTOR DE CÁLCULO
@@ -334,13 +378,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
+    # Bloqueo de latencia temprana (Primeros 25 días)
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+
     # Bypass Ruptura Temprana
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
-    # Balance Hídrico Superficial
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.37)
+    # Balance Hídrico Superficial (Tres Arroyos con secado Kr)
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.45)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
@@ -355,7 +402,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
-  
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
@@ -380,13 +426,18 @@ if df_meteo_raw is not None and modelo_ann is not None:
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
 
     # Métricas Robustas
-    pearson_r, rmse_acum, ccc_acum = 0.0, 0.0, 0.0
+    pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum = 0.0, 0.0, 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
 
     if df_campo is not None:
         df_sincronizado = sincronizar_series_por_intervalos(df, df_campo, col_fecha, col_plm2)
         metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
-        pearson_r, rmse_acum, ccc_acum = metricas_robustas["Pearson_Flujos"], metricas_robustas["RMSE_Acumulado"], metricas_robustas["CCC_Acumulado"]
+        
+        pearson_r = metricas_robustas["Pearson_Flujos"]
+        nse_flujos = metricas_robustas["NSE_Flujos"]
+        kge_flujos = metricas_robustas["KGE_Flujos"]
+        rmse_acum = metricas_robustas["RMSE_Acumulado"]
+        ccc_acum = metricas_robustas["CCC_Acumulado"]
         df_campo["Sim_Intervalo"] = df_sincronizado["Sim_Relativo"] 
 
         tot_plm2 = df_campo[col_plm2].sum()
@@ -428,11 +479,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with tab1:
         if df_campo is not None:
             st.markdown("<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (INTEGRAL)</p>", unsafe_allow_html=True)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Correlación (Pearson)", f"{pearson_r:.3f}", "Sincronía (Valores > 0)")
-            c2.metric("Concordancia (CCC)", f"{ccc_acum:.3f}", "Fidelidad de Trayectoria")
-            c3.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Magnitud de desvío", delta_color="inverse")
-            c4.metric("Desfase Global (T50)", f"{desfase_t50:+d} días", "Anticipo (-)" if desfase_t50 < 0 else "Atraso (+)" if desfase_t50 > 0 else "Sincronizado", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            
+            c1.metric("Eficiencia (KGE)", f"{kge_flujos:.3f}", "Ajuste Global")
+            c2.metric("Predictivo (NSE)", f"{nse_flujos:.3f}", "Flujos")
+            c3.metric("Trayectoria (CCC)", f"{ccc_acum:.3f}", "Curva Acum.")
+            c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acum.", delta_color="inverse")
+            c5.metric("Desfase (T50)", f"{desfase_t50:+d} días", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
 
             if fecha_control:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL</p>", unsafe_allow_html=True)
@@ -541,7 +594,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'NSE (Flujos)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_TresArroyos_vK4_9_10_clean.xlsx")
