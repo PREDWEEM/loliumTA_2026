@@ -353,7 +353,7 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_ta=
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.title("🌾 PREDWEEM by GUILLERMO R. CHANTRE — TRES ARROYOS (BA) lat=-38.45 lon=-60.276321")
+st.title("🌾 PREDWEEM LOLIUM — TRES ARROYOS (BA) lat=-38.45 lon=-60.276321")
 
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
