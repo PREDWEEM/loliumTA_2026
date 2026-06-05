@@ -430,7 +430,7 @@ st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Flexibilidad Estadística")
 ventana_agrupacion = st.sidebar.slider(
     "Ventana de Validación (días)", 
-    min_value=1, max_value=30, value=11, step=1, 
+    min_value=1, max_value=30, value=14, step=1, 
     help="Define la Unidad de Decisión Agronómica. Agrupa flujos y sombrea el gráfico principal en intervalos de N días."
 )
 
