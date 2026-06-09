@@ -4,7 +4,7 @@
 # Actualización:
 # - ADAPTACIÓN TRES ARROYOS: Coordenadas mantenidas en -38.45.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - CALIBRACIÓN SITIO: Capacidad de campo ajustada a 15 mm.
+# - CALIBRACIÓN SITIO: Capacidad de campo ajustada a 20 mm.
 # - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
 # - DINÁMICA HÍDRICA: Conserva Secado exponencial del suelo (Factor Kr) en BHS.
 # - NSE FLEXIBLE (SEMANAL): Reemplazo de sincronización rígida por interpolación 
@@ -425,7 +425,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Flexibilidad Estadística")
