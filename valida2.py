@@ -11,6 +11,7 @@
 #   continua de acumulados y remuestreo dinámico en ventanas de N-días.
 # - OPTIMIZADOR 3D: Barrido paramétrico simultáneo de W_Max, Ke y Ventana.
 # - UX VISUAL: Incorporación de la "Unidad de Decisión Agronómica" como sombreado.
+# - NUEVO: Sombreado de Ventana de Aplicación (600 - 800 °Cd) y línea límite.
 # ===============================================================
 
 import streamlit as st
@@ -153,7 +154,7 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
     return np.maximum(0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange), 0)
 
 # Factor Kr - Secado exponencial (Específico Tres Arroyos)
-def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
+def balance_hidrico_superficial(prec, et0, w_max=15.0, ke_suelo=0.4):
     n = len(prec)
     w = np.zeros(n)
     w[0] = w_max / 2.0 
@@ -532,17 +533,24 @@ if df_meteo_raw is not None and modelo_ann is not None:
     if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
 
+    # --- NUEVO: CÁLCULO DE FECHA LÍMITE (800 °Cd) ---
     dga_hoy, dga_7dias = 0.0, 0.0
-    fecha_inicio_ventana, fecha_control = None, None
+    fecha_inicio_ventana, fecha_control, fecha_limite = None, None, None
     msg_estado = "Esperando pico de emergencia..."
 
     if indices_pulso:
         fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
-        df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
         
+        # Fecha de 600 °Cd (Control)
+        df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
         if not df_control.empty: fecha_control = df_control.iloc[0]["Fecha"]
+        
+        # Fecha de 800 °Cd (Límite)
+        df_limite = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_critico]
+        if not df_limite.empty: fecha_limite = df_limite.iloc[0]["Fecha"]
+        
         dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
         
@@ -623,7 +631,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         with col_main:
             fig_emer = go.Figure()
             
-            # --- NUEVO: SOMBREADO DE UNIDADES DE DECISIÓN AGRONÓMICA ---
+            # --- SOMBREADO DE UNIDADES DE DECISIÓN AGRONÓMICA ---
             fecha_inicio_grilla = df["Fecha"].min()
             fecha_fin_grilla = df["Fecha"].max()
             fecha_actual = fecha_inicio_grilla
@@ -648,8 +656,25 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos a Campo (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
 
             if fecha_control:
+                # Marca a 600 °Cd (Control)
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
+                
+                # Sombreado de protección
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
+
+                # --- NUEVO: MARCA LÍMITE Y SOMBREADO DE VENTANA DE APLICACIÓN ---
+                if fecha_limite:
+                    # Línea límite a los 800 °Cd
+                    fig_emer.add_vline(x=fecha_limite.timestamp() * 1000, line_dash="dot", line_color="orange", line_width=3, annotation_text=f"Límite ({dga_critico}°Cd)", annotation_position="top right", annotation_font=dict(color="orange", size=12))
+                    
+                    # Sombreado de la Ventana de Aplicación (600 - 800 °Cd)
+                    fig_emer.add_vrect(
+                        x0=fecha_control.timestamp() * 1000, 
+                        x1=fecha_limite.timestamp() * 1000, 
+                        fillcolor="rgba(255, 165, 0, 0.2)", # Naranja suave
+                        layer="below", line_width=0,
+                        annotation_text="Ventana de Aplicación", annotation_position="top left"
+                    )
 
             titulo_grafico = f"Dinámica de Emergencia y Momento Crítico (Unidad Decisión: {ventana_agrupacion} días)"
             fig_emer.update_layout(title=titulo_grafico, yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
