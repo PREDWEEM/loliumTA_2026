@@ -4,7 +4,7 @@
 # Actualización y Rigor Científico:
 # - ADAPTACIÓN TRES ARROYOS: Coordenadas fijas en -38.4500 para ET0 Hargreaves.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - CALIBRACIÓN ÓPTIMA: Inicialización de Capacidad de Campo en 15.0 mm para máxima fidelidad.
+# - CALIBRACIÓN ÓPTIMA: Inicialización de Capacidad de Campo en 20.0 mm para máxima fidelidad.
 # - DINÁMICA HÍDRICA CRUCIAL: Preservación del Secado Exponencial del Suelo (Factor Kr) en el BHS.
 # - VALIDACIÓN POR EVENTO REAL: Incorporación de la Integración Dinámica por Intervalo Variable
 #   (Event-to-Event) para absorber recuentos de campo de 7 a 21 días sin generar datos sintéticos.
@@ -415,7 +415,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Estado de Validación")
