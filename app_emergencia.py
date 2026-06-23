@@ -329,6 +329,9 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_ta=
             df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
             df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
             
+            # BLOQUEO FINAL ESTRICTO: Latencia Temprana (Primeros 25 días del año)
+            df_sim.loc[df_sim["Julian_days"] <= 25, "EMERREL"] = 0.0
+
             df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
             metricas = calcular_metricas_validacion_integral(df_sync)
             
@@ -400,7 +403,7 @@ st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
-umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 20.0, 100.0, 30.0)
+umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 10.0, 100.0, 15.0)
 
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 0)
 
@@ -470,20 +473,20 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    # Predicción Neural
+    # ----------------------------------------------------
+    # CORRECCIÓN: Lógica Fisiológica Ordenada
+    # ----------------------------------------------------
+    # 1. Predicción Neural Base
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # Bloqueo de latencia temprana (Primeros 25 días del año)
-    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
-
-    # Bypass Ruptura Temprana
+    # 2. Bypass Ruptura Temprana - ESTRICTAMENTE LUEGO DEL DÍA 25
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    mask_ruptura = (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    mask_ruptura = (df["Julian_days"] > 25) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
-    # Balance Hídrico Superficial (Tres Arroyos con secado exponencial Kr)
+    # 3. Balance Hídrico Superficial (Tres Arroyos con secado exponencial Kr)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.4500)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
     humedad_relativa = df["W_superficial"] / w_max_val
@@ -494,13 +497,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # Escudo Termofisiológico
+    # 4. Escudo Termofisiológico
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
     
     # Techo estricto 0-1
     df["EMERREL"] = np.clip(df["EMERREL"], 0, 1.0)
+
+    # 5. BLOQUEO FINAL ESTRICTO: Latencia Temprana (Primeros 25 días del año)
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+    # ----------------------------------------------------
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
