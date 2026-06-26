@@ -12,7 +12,7 @@ class Item(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {"https://github.com/PREDWEEM/loliumTA_2026/blob/main/app_emergencia.py"}
 
 
 @app.get("/items/{item_id}")
