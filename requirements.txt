@@ -7,5 +7,5 @@ numba
 scipy
 openpyxl
 fastapi
-uvicorn[standard]
+uvicorn
 fastapi[standard]
