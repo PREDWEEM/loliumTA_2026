@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 API CLOUD PREDWEEM INTEGRAL vK4.9.15 — LOLIUM TRES ARROYOS 2026
+# Actualización y Rigor Científico: Guillermo R. Chantre
 # ===============================================================
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from datetime import datetime, timedelta
 from pathlib import Path
 import numpy as np
@@ -16,7 +16,7 @@ import base64
 
 app = FastAPI(
     title="PREDWEEM Cloud Engine",
-    description="API de simulación termo-hidrómica para Lolium - Tres Arroyos",
+    description="API de simulación termo-hidrómica para Lolium - Tres Arroyos (BA)",
     version="4.9.15"
 )
 
@@ -170,8 +170,19 @@ def calcular_metricas_validacion_integral(df_sync):
     }
 
 # ---------------------------------------------------------
-# ENDPOINT DE SIMULACIÓN CENTRAL
+# ENDPOINTS DE LA API
 # ---------------------------------------------------------
+@app.get("/", status_code=status.HTTP_200_OK)
+def read_root():
+    """Ruta raíz para monitorear la salud del motor cloud."""
+    return {
+        "status": "online",
+        "engine": "PREDWEEM Cloud Engine",
+        "version": "4.9.15",
+        "region_calibrated": "Tres Arroyos, BA (lat=-38.4500)",
+        "documentation_url": "/docs"
+    }
+
 @app.post("/simulate")
 async def run_simulation(
     archivo_clima: UploadFile = File(...),
@@ -235,7 +246,7 @@ async def run_simulation(
             max_plm2 = df_campo[col_plm2].max()
             df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
         except Exception as e:
-            df_campo = None # Fallback resiliente si el archivo estructural está corrupto
+            df_campo = None 
 
     # 3. Motor Fisiológico de Emergencia (PREDWEEM Core)
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
