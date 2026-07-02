@@ -427,7 +427,7 @@ st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.005)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
-umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
+umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 23.0, 0.5)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 10.0, 100.0, 30.0)
