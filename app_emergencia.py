@@ -83,7 +83,7 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-UMBRAL_PRIMER_PICO = 0.70
+UMBRAL_PRIMER_PICO = 0.80
 
 def set_bg_hack(main_bg_file):
     try:
