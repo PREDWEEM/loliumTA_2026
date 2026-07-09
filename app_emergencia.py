@@ -451,7 +451,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             )
 
             x_cobertura = [0, 30, 70, 100]
-            ke_val = float(np.interp(cobertura_pct, x_cobertura, [1.60, 1.20, 0.80, 0.40]))
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, [1.80, 1.20, 0.80, 0.40]))
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, [0.90, 0.85, 0.80, 0.75]))
 
             html_card = f"""
