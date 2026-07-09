@@ -509,8 +509,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=30.0, step=1.0)
-
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Estado de Validación")
 st.sidebar.info("🔬 **Modo Event-to-Event Habilitado**: Los desvíos se calculan de manera dinámica adaptándose al intervalo real de muestreo a campo (7 a 21 días), protegiendo la varianza pura del flujo.")
