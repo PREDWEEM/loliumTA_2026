@@ -2,7 +2,7 @@
 """
 🌾 PREDWEEM — Optimización de Ke y Modulador Térmico según cobertura
 
-App Streamlit independiente para buscar, para un nivel de cobertura dado,
+App Streamlit autosuficiente para buscar, para un nivel de cobertura dado,
 la combinación de:
     - Coeficiente Hídrico Suelo (Ke)
     - Modulador Térmico Suelo
@@ -15,10 +15,10 @@ Datos por defecto:
 Ejecución:
     streamlit run app_optimizar_cobertura.py
 
-Criterio principal:
-    El flujo diario simulado se agrega dentro de cada intervalo real de muestreo
-    de campo y se compara contra el flujo observado normalizado en el mismo
-    intervalo.
+Nota técnica:
+    Esta versión NO importa calibrar_suelo_desnudo_bimodal.py. Incluye dentro
+    del mismo archivo el modelo ANN, ET0 Hargreaves, balance hídrico,
+    sincronización por intervalos reales y métricas de validación.
 """
 
 from __future__ import annotations
@@ -31,22 +31,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from calibrar_suelo_desnudo_bimodal import (
-    BASE,
-    load_ann,
-    calcular_et0_hargreaves,
-    balance_hidrico_superficial,
-    cargar_campo,
-    sincronizar_intervalos_variables,
-    metricas_evento,
-)
 
-
+BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 DEFAULT_METEO = "meteo_daily.csv"
 DEFAULT_CAMPO = "validacion.xlsx"
 DEFAULT_SALIDA = "resultados_optimizacion_cobertura_ke_modtermico.csv"
 LAT_TRES_ARROYOS = -38.4500
-
 CRITERIOS_MENOR_ES_MEJOR = {"RMSE_Campo", "MAE_Campo", "Abs_Bias_Campo"}
 
 
@@ -58,10 +48,75 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------------------
+# Modelo ANN y motor biofísico autosuficiente
+# ---------------------------------------------------------------------
+class PracticalANNModel:
+    def __init__(self, IW: np.ndarray, bIW: np.ndarray, LW: np.ndarray, bLW: np.ndarray):
+        self.IW = IW
+        self.bIW = bIW
+        self.LW = LW
+        self.bLW = bLW
+        self.input_min = np.array([1, 0, -7, 0], dtype=float)
+        self.input_max = np.array([300, 41, 25.5, 84], dtype=float)
+
+    def normalize(self, X: np.ndarray) -> np.ndarray:
+        return 2 * (X - self.input_min) / (self.input_max - self.input_min) - 1
+
+    def predict(self, Xreal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        Xn = self.normalize(Xreal)
+        a1 = np.tanh(Xn @ self.IW + self.bIW)
+        emerrel = (np.tanh((a1 @ self.LW.T).flatten() + self.bLW) + 1) / 2
+        return emerrel, np.cumsum(emerrel)
+
+
+@st.cache_resource
+def cargar_modelo_ann_cache() -> PracticalANNModel:
+    requeridos = ["IW.npy", "bias_IW.npy", "LW.npy", "bias_out.npy"]
+    faltantes = [nombre for nombre in requeridos if not (BASE / nombre).exists()]
+    if faltantes:
+        raise FileNotFoundError(f"Faltan archivos ANN en el repositorio: {faltantes}")
+
+    return PracticalANNModel(
+        np.load(BASE / "IW.npy"),
+        np.load(BASE / "bias_IW.npy"),
+        np.load(BASE / "LW.npy"),
+        np.load(BASE / "bias_out.npy"),
+    )
+
+
+def calcular_et0_hargreaves(jday: np.ndarray, tmax: np.ndarray, tmin: np.ndarray, latitud: float) -> np.ndarray:
+    lat_rad = np.radians(latitud)
+    dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
+    dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
+    ws = np.arccos(-np.tan(lat_rad) * np.tan(dec))
+    ra = (24 * 60 / np.pi) * 0.0820 * dr * (
+        ws * np.sin(lat_rad) * np.sin(dec)
+        + np.cos(lat_rad) * np.cos(dec) * np.sin(ws)
+    )
+    ra_mm = ra / 2.45
+    tmean = (tmax + tmin) / 2.0
+    trange = np.maximum(tmax - tmin, 0)
+    return np.maximum(0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange), 0)
+
+
+def balance_hidrico_superficial(prec: np.ndarray, et0: np.ndarray, w_max: float, ke_suelo: float) -> np.ndarray:
+    n = len(prec)
+    w = np.zeros(n, dtype=float)
+    if n == 0:
+        return w
+    w[0] = w_max / 2.0
+    for i in range(1, n):
+        kr = w[i - 1] / w_max if w_max > 0 else 0.0
+        ke_dinamico = ke_suelo * kr
+        evaporacion_real = et0[i] * ke_dinamico
+        w[i] = max(0.0, min(w_max, w[i - 1] + prec[i] - evaporacion_real))
+    return w
+
+
+# ---------------------------------------------------------------------
 # Utilidades de datos
 # ---------------------------------------------------------------------
 def materializar_archivo(uploaded_file, default_filename: str) -> Path:
-    """Devuelve el archivo por defecto o guarda temporalmente un archivo subido."""
     if uploaded_file is None:
         path = BASE / default_filename
         if not path.exists():
@@ -122,6 +177,17 @@ def preparar_meteo_con_modulador(path: Path, mod_termico: float) -> pd.DataFrame
     return df
 
 
+def cargar_campo(path: Optional[Path]) -> Optional[pd.DataFrame]:
+    if path is None or not path.exists():
+        return None
+    campo = leer_tabla(path)
+    if campo.empty or len(campo.columns) < 2:
+        raise ValueError("El archivo de campo debe tener al menos columnas de fecha y conteo/PLM2.")
+    col_fecha = "FECHA" if "FECHA" in campo.columns else campo.columns[0]
+    campo[col_fecha] = pd.to_datetime(campo[col_fecha])
+    return campo
+
+
 def columnas_campo(df_campo: pd.DataFrame) -> tuple[str, str]:
     col_fecha = "FECHA" if "FECHA" in df_campo.columns else df_campo.columns[0]
     col_plm2 = "PLM2" if "PLM2" in df_campo.columns else df_campo.columns[1]
@@ -137,12 +203,7 @@ def rango_float(inicio: float, fin: float, paso: float) -> np.ndarray:
 # Relación inicial cobertura -> valores esperados
 # ---------------------------------------------------------------------
 def estimar_ke_por_cobertura(cobertura_pct: float) -> float:
-    """
-    Priori agronómica para suelo con cobertura.
-
-    Se usa el valor calibrado de suelo desnudo como ancla en 0 %:
-    Ke=1.25 para cobertura 0 %, y menor evaporación a mayor cobertura.
-    """
+    """Priori agronómica: mayor cobertura reduce evaporación y, por tanto, Ke."""
     x = [0, 30, 70, 100]
     y = [1.25, 0.70, 0.30, 0.10]
     return float(np.interp(cobertura_pct, x, y))
@@ -164,13 +225,133 @@ def rangos_automaticos(cobertura_pct: float) -> tuple[tuple[float, float], tuple
 
 
 # ---------------------------------------------------------------------
-# Simulación y métricas
+# Sincronización y métricas
 # ---------------------------------------------------------------------
-@st.cache_resource
-def cargar_modelo_ann_cache():
-    return load_ann(BASE)
+def sincronizar_intervalos_variables(df_sim: pd.DataFrame, df_campo: pd.DataFrame, col_fecha: str, col_plm2: str) -> pd.DataFrame:
+    df_campo = df_campo.sort_values(col_fecha).copy()
+    df_campo["Campo_Acum_Abs"] = df_campo[col_plm2].cumsum()
+    fechas = df_campo[col_fecha].tolist()
+    registros = []
+
+    for i in range(1, len(fechas)):
+        f_ini = fechas[i - 1]
+        f_fin = fechas[i]
+        dias_intervalo = (f_fin - f_ini).days
+        obs_ini = df_campo.loc[df_campo[col_fecha] == f_ini, "Campo_Acum_Abs"].values[0]
+        obs_fin = df_campo.loc[df_campo[col_fecha] == f_fin, "Campo_Acum_Abs"].values[0]
+        flujo_obs = max(0.0, obs_fin - obs_ini)
+        flujo_sim = df_sim.loc[(df_sim["Fecha"] > f_ini) & (df_sim["Fecha"] <= f_fin), "EMERREL"].sum()
+        acum_sim_fin = df_sim.loc[df_sim["Fecha"] <= f_fin, "EMERREL"].sum()
+        registros.append(
+            {
+                "Fecha": f_fin,
+                "Dias_Intervalo": dias_intervalo,
+                "Flujo_Obs_Abs": flujo_obs,
+                "Flujo_Sim_Abs": flujo_sim,
+                "Acum_Obs_Abs": obs_fin,
+                "Acum_Sim_Abs": acum_sim_fin,
+            }
+        )
+
+    out = pd.DataFrame(registros)
+    if out.empty:
+        return out
+
+    total_obs = out["Flujo_Obs_Abs"].sum()
+    total_sim = df_sim.loc[df_sim["Fecha"] <= fechas[-1], "EMERREL"].sum()
+    out["Campo_Relativo"] = out["Flujo_Obs_Abs"] / total_obs if total_obs > 0 else 0.0
+    out["Sim_Relativo"] = out["Flujo_Sim_Abs"] / total_sim if total_sim > 0 else 0.0
+    return out
 
 
+def metricas_evento(df_sync: pd.DataFrame, umbral_deteccion: float = 0.05) -> dict:
+    if df_sync.empty or len(df_sync) < 2:
+        return {"F1_Campo": np.nan, "NSE_Campo": np.nan, "Pearson_Campo": np.nan}
+
+    obs = df_sync["Campo_Relativo"].to_numpy(float)
+    sim = df_sync["Sim_Relativo"].to_numpy(float)
+    active = (obs > 0) | (sim > 0)
+
+    if active.sum() >= 2 and np.std(obs[active]) > 0 and np.std(sim[active]) > 0:
+        pearson = float(np.corrcoef(obs[active], sim[active])[0, 1])
+    else:
+        pearson = 0.0
+
+    denom = np.sum((obs[active] - np.mean(obs[active])) ** 2) if active.sum() >= 2 else 0.0
+    nse = float(1 - np.sum((sim[active] - obs[active]) ** 2) / denom) if denom > 0 else 0.0
+
+    obs_evt = df_sync["Campo_Relativo"] > umbral_deteccion
+    sim_evt = df_sync["Sim_Relativo"] > umbral_deteccion
+    hits = int((obs_evt & sim_evt).sum())
+    fp = int((~obs_evt & sim_evt).sum())
+    miss = int((obs_evt & ~sim_evt).sum())
+    precision = hits / (hits + fp) if hits + fp > 0 else 0.0
+    recall = hits / (hits + miss) if hits + miss > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+    return {"F1_Campo": f1, "NSE_Campo": nse, "Pearson_Campo": pearson}
+
+
+def metricas_ajuste_campo(df_sync: pd.DataFrame, umbral_deteccion: float) -> dict:
+    if df_sync.empty or len(df_sync) < 2:
+        return {
+            "Ajuste_Campo_Compuesto": np.nan,
+            "RMSE_Campo": np.nan,
+            "MAE_Campo": np.nan,
+            "Bias_Campo": np.nan,
+            "Abs_Bias_Campo": np.nan,
+            "NSE_Campo": np.nan,
+            "Pearson_Campo": np.nan,
+            "R2_Campo": np.nan,
+            "F1_Campo": np.nan,
+        }
+
+    base = metricas_evento(df_sync, umbral_deteccion=umbral_deteccion)
+    obs = df_sync["Campo_Relativo"].to_numpy(float)
+    sim = df_sync["Sim_Relativo"].to_numpy(float)
+    active = (obs > 0) | (sim > 0)
+
+    if active.sum() == 0:
+        return {
+            **base,
+            "Ajuste_Campo_Compuesto": 0.0,
+            "RMSE_Campo": 1.0,
+            "MAE_Campo": 1.0,
+            "Bias_Campo": 0.0,
+            "Abs_Bias_Campo": 0.0,
+            "R2_Campo": 0.0,
+        }
+
+    obs_a = obs[active]
+    sim_a = sim[active]
+    resid = sim_a - obs_a
+    rmse = float(np.sqrt(np.mean(resid**2)))
+    mae = float(np.mean(np.abs(resid)))
+    bias = float(np.mean(resid))
+    pearson = float(base.get("Pearson_Campo", 0.0)) if pd.notna(base.get("Pearson_Campo", np.nan)) else 0.0
+    nse = float(base.get("NSE_Campo", 0.0)) if pd.notna(base.get("NSE_Campo", np.nan)) else 0.0
+    f1 = float(base.get("F1_Campo", 0.0)) if pd.notna(base.get("F1_Campo", np.nan)) else 0.0
+    r2 = max(0.0, pearson) ** 2
+
+    nse_score = float(np.clip((nse + 1.0) / 2.0, 0.0, 1.0))
+    pearson_score = float(np.clip((pearson + 1.0) / 2.0, 0.0, 1.0))
+    rmse_score = float(1.0 / (1.0 + rmse))
+    mae_score = float(1.0 / (1.0 + mae))
+    ajuste = 0.35 * nse_score + 0.25 * rmse_score + 0.20 * pearson_score + 0.10 * mae_score + 0.10 * f1
+
+    return {
+        **base,
+        "Ajuste_Campo_Compuesto": ajuste,
+        "RMSE_Campo": rmse,
+        "MAE_Campo": mae,
+        "Bias_Campo": bias,
+        "Abs_Bias_Campo": abs(bias),
+        "R2_Campo": r2,
+    }
+
+
+# ---------------------------------------------------------------------
+# Simulación y optimización
+# ---------------------------------------------------------------------
 def simular_ke_modtermico(
     meteo_path: Path,
     ke_suelo: float,
@@ -233,65 +414,6 @@ def simular_ke_modtermico(
         df["Primer_Pico_Habilitado"] = True
 
     return df, fecha_primer_pico
-
-
-def metricas_ajuste_campo(df_sync: pd.DataFrame, umbral_deteccion: float) -> dict:
-    if df_sync.empty or len(df_sync) < 2:
-        return {
-            "Ajuste_Campo_Compuesto": np.nan,
-            "RMSE_Campo": np.nan,
-            "MAE_Campo": np.nan,
-            "Bias_Campo": np.nan,
-            "Abs_Bias_Campo": np.nan,
-            "NSE_Campo": np.nan,
-            "Pearson_Campo": np.nan,
-            "R2_Campo": np.nan,
-            "F1_Campo": np.nan,
-        }
-
-    base = metricas_evento(df_sync, umbral_deteccion=umbral_deteccion)
-    obs = df_sync["Campo_Relativo"].to_numpy(float)
-    sim = df_sync["Sim_Relativo"].to_numpy(float)
-    active = (obs > 0) | (sim > 0)
-
-    if active.sum() == 0:
-        return {
-            **base,
-            "Ajuste_Campo_Compuesto": 0.0,
-            "RMSE_Campo": 1.0,
-            "MAE_Campo": 1.0,
-            "Bias_Campo": 0.0,
-            "Abs_Bias_Campo": 0.0,
-            "R2_Campo": 0.0,
-        }
-
-    obs_a = obs[active]
-    sim_a = sim[active]
-    resid = sim_a - obs_a
-
-    rmse = float(np.sqrt(np.mean(resid**2)))
-    mae = float(np.mean(np.abs(resid)))
-    bias = float(np.mean(resid))
-    pearson = float(base.get("Pearson_Campo", 0.0)) if pd.notna(base.get("Pearson_Campo", np.nan)) else 0.0
-    nse = float(base.get("NSE_Campo", 0.0)) if pd.notna(base.get("NSE_Campo", np.nan)) else 0.0
-    f1 = float(base.get("F1_Campo", 0.0)) if pd.notna(base.get("F1_Campo", np.nan)) else 0.0
-    r2 = max(0.0, pearson) ** 2
-
-    nse_score = float(np.clip((nse + 1.0) / 2.0, 0.0, 1.0))
-    pearson_score = float(np.clip((pearson + 1.0) / 2.0, 0.0, 1.0))
-    rmse_score = float(1.0 / (1.0 + rmse))
-    mae_score = float(1.0 / (1.0 + mae))
-    ajuste = 0.35 * nse_score + 0.25 * rmse_score + 0.20 * pearson_score + 0.10 * mae_score + 0.10 * f1
-
-    return {
-        **base,
-        "Ajuste_Campo_Compuesto": ajuste,
-        "RMSE_Campo": rmse,
-        "MAE_Campo": mae,
-        "Bias_Campo": bias,
-        "Abs_Bias_Campo": abs(bias),
-        "R2_Campo": r2,
-    }
 
 
 def evaluar_combinacion(
@@ -384,8 +506,7 @@ def ejecutar_barrido(
                 progress.progress(done / max(total, 1), text=f"Evaluando {done}/{total} combinaciones")
 
     progress.empty()
-    ranking = ordenar_ranking(pd.DataFrame(resultados), criterio)
-    return ranking
+    return ordenar_ranking(pd.DataFrame(resultados), criterio)
 
 
 # ---------------------------------------------------------------------
@@ -466,14 +587,7 @@ def grafico_heatmap(ranking: pd.DataFrame, criterio: str) -> go.Figure:
     if ranking.empty or criterio not in ranking.columns:
         return fig
     pivot = ranking.pivot_table(index="Mod_Termico", columns="Ke_Suelo", values=criterio, aggfunc="mean")
-    fig.add_trace(
-        go.Heatmap(
-            x=pivot.columns,
-            y=pivot.index,
-            z=pivot.values,
-            colorbar=dict(title=criterio),
-        )
-    )
+    fig.add_trace(go.Heatmap(x=pivot.columns, y=pivot.index, z=pivot.values, colorbar=dict(title=criterio)))
     fig.update_layout(
         title=f"Superficie de respuesta — {criterio}",
         xaxis_title="Ke suelo",
@@ -602,6 +716,7 @@ try:
     df_campo = cargar_campo(campo_path)
     if df_campo is None:
         raise FileNotFoundError("No se pudo cargar el archivo de validación de campo.")
+
     col_fecha, col_plm2 = columnas_campo(df_campo)
     df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
     df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
