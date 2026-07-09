@@ -62,7 +62,9 @@ jobs:
 
           # Mantener en false para no mezclar pronósticos vencidos con observaciones.
           RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
-        run: python actualizar_meteo_tres_arroyos.py
+        run: |
+          python actualizar_meteo_tres_arroyos.py
+          python postprocesar_prec_p50_tres_arroyos.py
 
       - name: Guardar archivos actualizados
         run: |
