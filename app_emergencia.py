@@ -362,7 +362,7 @@ def optimizar_parametros_hidricos_2d(
     emerrel_raw, _ = modelo_ann.predict(X)
     
     rango_w_max = np.arange(10.0, 36.0, 2.0)
-    rango_ke = np.arange(0.2, 0.85, 0.1)
+    rango_ke = np.arange(0.2, 1.6, 0.1)
     
     resultados = []
     col_fecha = df_campo.columns[0]
