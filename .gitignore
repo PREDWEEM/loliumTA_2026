@@ -1,0 +1,40 @@
+# Credenciales y configuración privada
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+credentials.json
+token.json
+*service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Entornos y archivos temporales
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Datos y documentos privados locales
+data/private/
+data/raw_private/
+data/training/
+data/validation_private/
+data/calibration_private/
+datos_privados/
+contratos/
+comercial/
+exportaciones_privadas/
+
+# Archivos de trabajo temporales
+*.tmp
+*.bak
+*.log
+~$*
