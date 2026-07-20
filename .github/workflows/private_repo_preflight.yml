@@ -1,0 +1,64 @@
+name: Verificar despliegue privado
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Recursos requeridos
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_files=(
+            "app_emergencia.py"
+            "app_emergencia_core.py"
+            "meteo_daily.csv"
+            "logo.png"
+            "IW.npy"
+            "LW.npy"
+            "bias_IW.npy"
+            "bias_out.npy"
+            "modelo_clusters_k3.pkl"
+            "COPYRIGHT.md"
+          )
+          for file in "${required_files[@]}"; do
+            test -f "$file" || { echo "Falta: $file"; exit 1; }
+          done
+
+      - name: Referencias internas
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RIn --include='*.py' -E 'raw\.githubusercontent\.com/PREDWEEM/(loliumTA_2026|LOLIUM_TA2026)' .; then
+            echo "Se detectó una referencia pública al propio repositorio."
+            exit 1
+          fi
+
+      - name: Sintaxis
+        run: |
+          python -m py_compile \
+            app_emergencia.py \
+            app_emergencia_core.py \
+            actualizar_meteo_tres_arroyos.py \
+            postprocesar_prec_p50_tres_arroyos.py
