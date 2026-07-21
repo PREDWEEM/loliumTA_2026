@@ -1,14 +1,12 @@
 {
-  "ejecucion_utc": "2026-07-21T12:08:17+00:00",
+  "ejecucion_utc": "2026-07-21T19:59:29+00:00",
   "sitio": "Tres Arroyos / INTA Barrow",
   "latitud": -38.388,
   "longitud": -60.346,
   "estado_siga": "SIGA_remoto",
-  "ultima_observacion_siga": "2026-07-19",
+  "ultima_observacion_siga": "2026-07-20",
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "inicio_pronostico": "2026-07-21",
   "fin_pronostico": "2026-07-27",
-  "huecos_observados": [
-    "2026-07-20"
-  ]
+  "huecos_observados": []
 }
