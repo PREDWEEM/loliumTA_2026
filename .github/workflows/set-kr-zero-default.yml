@@ -1,0 +1,71 @@
+name: Unificar Kr predeterminado en cero
+
+on:
+  push:
+    branches:
+      - agent/kr-zero-default
+
+permissions:
+  contents: write
+
+jobs:
+  update-kr:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/kr-zero-default
+
+      - name: Cambiar Kr predeterminado
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app_emergencia_core.py')
+          text = path.read_text(encoding='utf-8')
+
+          defaults_before = text.count('exponente_kr=1.0')
+          if defaults_before < 2:
+              raise SystemExit(
+                  f'Se esperaban al menos 2 valores predeterminados exponente_kr=1.0; encontrados: {defaults_before}'
+              )
+          text = text.replace('exponente_kr=1.0', 'exponente_kr=0.0')
+
+          pattern = re.compile(
+              r'("Exponente Kr \(secado superficial\)",\s*'
+              r'min_value=0\.0,\s*max_value=2\.0,\s*value=)1\.0(,)',
+              flags=re.MULTILINE,
+          )
+          text, slider_changes = pattern.subn(r'\g<1>0.0\2', text)
+          if slider_changes != 1:
+              raise SystemExit(
+                  f'Se esperaba cambiar un valor inicial del slider Kr; cambios: {slider_changes}'
+              )
+
+          text = text.replace(
+              '# Factor Kr configurable y reutilizable por localidad.',
+              '# Factor Kr configurable; valor predeterminado unificado en 0.',
+          )
+
+          if 'exponente_kr=1.0' in text:
+              raise SystemExit('Quedaron valores predeterminados exponente_kr=1.0 sin reemplazar.')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validar sintaxis
+        run: python -m py_compile app_emergencia_core.py app_emergencia.py
+
+      - name: Publicar cambio
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/set-kr-zero-default.yml
+          git add -A
+          git commit -m "Unificar Kr predeterminado en cero"
+          git push origin agent/kr-zero-default
