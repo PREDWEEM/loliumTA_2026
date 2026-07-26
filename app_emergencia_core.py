@@ -161,7 +161,7 @@ def balance_hidrico_superficial(
     et0,
     w_max=15.0,
     ke_suelo=0.4,
-    exponente_kr=1.0,
+    exponente_kr=0.0,
     devolver_kr=False,
 ):
     prec = np.asarray(prec, dtype=float)
