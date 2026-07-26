@@ -153,7 +153,7 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.45):
     trange = np.maximum(tmax - tmin, 0)
     return np.maximum(0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange), 0)
 
-# Factor Kr configurable y reutilizable por localidad.
+# Factor Kr configurable; valor predeterminado unificado en 0.
 # exponente_kr = 0 reproduce evaporación constante ET0 × Ke.
 # exponente_kr = 1 aplica la adaptación original de Tres Arroyos.
 def balance_hidrico_superficial(
@@ -161,7 +161,7 @@ def balance_hidrico_superficial(
     et0,
     w_max=15.0,
     ke_suelo=0.4,
-    exponente_kr=1.0,
+    exponente_kr=0.0,
     devolver_kr=False,
 ):
     prec = np.asarray(prec, dtype=float)
@@ -279,7 +279,7 @@ def simular_emergencia_ta(
     w_max,
     umbral_termoinhibicion=24.0,
     umbral_choque_hidrico=45.0,
-    exponente_kr=1.0,
+    exponente_kr=0.0,
     latitud=-38.4500,
 ):
     """Motor único usado por la aplicación y por el optimizador 2D."""
@@ -562,7 +562,7 @@ def optimizar_parametros_hidricos_2d(
     latitud_ta=-38.45,
     umbral_choque_hidrico=45.0,
     umbral_termoinhibicion=24.0,
-    exponente_kr=1.0,
+    exponente_kr=0.0,
 ):
     """Calibra cobertura y Wmax reutilizando exactamente el motor principal."""
     campo = df_campo.copy()
@@ -713,7 +713,7 @@ exponente_kr = st.sidebar.slider(
     "Exponente Kr (secado superficial)",
     min_value=0.0,
     max_value=2.0,
-    value=1.0,
+    value=0.0,
     step=0.1,
     help=(
         "0 = evaporación ET0×Ke sin Kr; 1 = adaptación original de "
