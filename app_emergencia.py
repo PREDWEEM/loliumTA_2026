@@ -54,7 +54,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 "Cobertura de rastrojo (%)",
                 "Wmax superficial (mm)",
                 "Ke aplicado",
-                "Módulo hídrico Kr",
+                "Exponente Kr configurable",
             ],
             "Valor": [
                 "Tres Arroyos (Buenos Aires)",
@@ -68,7 +68,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 globals().get("cobertura_pct", ""),
                 globals().get("w_max_val", ""),
                 globals().get("ke_val", ""),
-                "Secado exponencial dinámico específico de Tres Arroyos",
+                globals().get("exponente_kr", ""),
             ],
         }
     )
@@ -140,7 +140,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 "TT límite de ventana (°Cd)",
                 "Residualidad del herbicida (días)",
                 "Umbral de alerta temprana",
-                "Factor Kr",
+                "Exponente Kr",
             ],
             "Valor": [
                 -38.4500,
@@ -164,7 +164,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 globals().get("dga_critico", ""),
                 globals().get("residualidad", ""),
                 globals().get("umbral_er", ""),
-                "Dinámico: W(t-1) / Wmax",
+                globals().get("exponente_kr", ""),
             ],
         }
     )
