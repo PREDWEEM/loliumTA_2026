@@ -1,0 +1,579 @@
+name: Aplicar motor unificado de Tres Arroyos
+
+on:
+  push:
+    branches:
+      - agent/unificar-calculo-ta
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/unificar-calculo-ta
+
+      - name: Unificar cálculo y validación
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          core_path = Path("app_emergencia_core.py")
+          report_path = Path("app_emergencia.py")
+          workflow_path = Path(".github/workflows/apply-unified-engine.yml")
+
+          source = core_path.read_text(encoding="utf-8")
+
+          def replace_exact(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: se esperaba 1 coincidencia y se encontraron {count}")
+              return text.replace(old, new, 1)
+
+          old_balance = '''# Factor Kr — Secado exponencial específico de Tres Arroyos
+          def balance_hidrico_superficial(prec, et0, w_max=15.0, ke_suelo=0.4):
+              n = len(prec)
+              w = np.zeros(n)
+              w[0] = w_max / 2.0 
+              for i in range(1, n):
+                  kr = w[i-1] / w_max  
+                  ke_dinamico = ke_suelo * kr
+                  evaporacion_real = et0[i] * ke_dinamico
+                  w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
+              return w
+          '''
+
+          new_balance = '''# Factor Kr configurable y reutilizable por localidad.
+          # exponente_kr = 0 reproduce evaporación constante ET0 × Ke.
+          # exponente_kr = 1 aplica la adaptación original de Tres Arroyos.
+          def balance_hidrico_superficial(
+              prec,
+              et0,
+              w_max=15.0,
+              ke_suelo=0.4,
+              exponente_kr=1.0,
+              devolver_kr=False,
+          ):
+              prec = np.asarray(prec, dtype=float)
+              et0 = np.asarray(et0, dtype=float)
+              n = len(prec)
+              w = np.zeros(n, dtype=float)
+              kr_diario = np.ones(n, dtype=float)
+
+              if n == 0:
+                  return (w, kr_diario) if devolver_kr else w
+              if w_max <= 0:
+                  raise ValueError("Wmax debe ser mayor que cero.")
+
+              exponente = max(float(exponente_kr), 0.0)
+              w[0] = float(w_max) / 2.0
+              for i in range(1, n):
+                  fraccion_agua = float(np.clip(w[i - 1] / float(w_max), 0.0, 1.0))
+                  kr = 1.0 if exponente == 0.0 else fraccion_agua ** exponente
+                  kr_diario[i] = kr
+                  evaporacion_real = et0[i] * float(ke_suelo) * kr
+                  w[i] = np.clip(
+                      w[i - 1] + prec[i] - evaporacion_real,
+                      0.0,
+                      float(w_max),
+                  )
+
+              return (w, kr_diario) if devolver_kr else w
+          '''
+          source = replace_exact(source, old_balance, new_balance, "balance hídrico")
+
+          insertion_anchor = '''    return None
+
+          def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
+          '''
+
+          common_engine = '''    return None
+
+          def parametros_superficie(cobertura_pct):
+              """Deriva Ke y el modulador térmico únicamente desde cobertura física."""
+              cobertura = float(np.clip(cobertura_pct, 0.0, 100.0))
+              puntos_cobertura = [0.0, 30.0, 70.0, 100.0]
+              ke_suelo = float(
+                  np.interp(cobertura, puntos_cobertura, [0.85, 0.50, 0.25, 0.10])
+              )
+              modulador_termico = float(
+                  np.interp(cobertura, puntos_cobertura, [0.95, 0.90, 0.85, 0.80])
+              )
+              return ke_suelo, modulador_termico
+
+
+          def simular_emergencia_ta(
+              df_meteo,
+              modelo_ann,
+              cobertura_pct,
+              w_max,
+              umbral_termoinhibicion=24.0,
+              umbral_choque_hidrico=45.0,
+              exponente_kr=1.0,
+              latitud=-38.4500,
+          ):
+              """Motor único usado por la aplicación y por el optimizador 2D."""
+              df = df_meteo.copy()
+              df.columns = [str(c).upper().strip() for c in df.columns]
+              df = df.rename(
+                  columns={
+                      "FECHA": "Fecha",
+                      "DATE": "Fecha",
+                      "DATETIME": "Fecha",
+                      "PREC": "Prec",
+                      "PRECIPITACION": "Prec",
+                      "PRECIPITACIÓN": "Prec",
+                      "LLUVIA": "Prec",
+                  }
+              )
+              requeridas = ["Fecha", "TMAX", "TMIN", "Prec"]
+              faltantes = [c for c in requeridas if c not in df.columns]
+              if faltantes:
+                  raise ValueError(
+                      "Faltan columnas meteorológicas: " + ", ".join(faltantes)
+                  )
+
+              df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+              for columna in ("TMAX", "TMIN", "Prec"):
+                  df[columna] = pd.to_numeric(df[columna], errors="coerce")
+              df = (
+                  df.dropna(subset=requeridas)
+                  .sort_values("Fecha")
+                  .drop_duplicates("Fecha", keep="last")
+                  .reset_index(drop=True)
+              )
+              if df.empty:
+                  raise ValueError("No hay datos meteorológicos válidos.")
+              df["Prec"] = df["Prec"].clip(lower=0.0)
+              df["Julian_days"] = df["Fecha"].dt.dayofyear
+
+              ke_suelo, modulador_termico = parametros_superficie(cobertura_pct)
+              df["Cobertura_Rastrojo"] = float(cobertura_pct)
+              df["Ke_Suelo"] = ke_suelo
+              df["Exponente_Kr"] = float(exponente_kr)
+
+              df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2.0
+              amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2.0
+              df["TMAX_suelo"] = (
+                  df["Tmedia_aire"] + amplitud_termica * modulador_termico
+              )
+              df["TMIN_suelo"] = (
+                  df["Tmedia_aire"] - amplitud_termica * modulador_termico
+              )
+              df["Tmedia"] = df["Tmedia_aire"]
+
+              entradas_ann = df[
+                  ["Julian_days", "TMAX", "TMIN", "Prec"]
+              ].to_numpy(float)
+              emerrel_raw, _ = modelo_ann.predict(entradas_ann)
+              df["EMERREL_RAW_ANN"] = np.clip(emerrel_raw, 0.0, 1.0)
+              df["EMERREL"] = df["EMERREL_RAW_ANN"].copy()
+
+              df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+              choque_hidrico = (
+                  (df["Julian_days"] > 25)
+                  & (df["Julian_days"] <= 110)
+                  & (df["Prec_3d"] >= float(umbral_choque_hidrico))
+              )
+              df.loc[choque_hidrico, "EMERREL"] = np.maximum(
+                  df.loc[choque_hidrico, "EMERREL"],
+                  0.75,
+              )
+              df["Choque_Hidrico"] = choque_hidrico
+
+              df["ET0"] = calcular_et0_hargreaves(
+                  df["Julian_days"].values,
+                  df["TMAX"].values,
+                  df["TMIN"].values,
+                  latitud=latitud,
+              )
+              agua, kr_diario = balance_hidrico_superficial(
+                  df["Prec"].values,
+                  df["ET0"].values,
+                  w_max=float(w_max),
+                  ke_suelo=ke_suelo,
+                  exponente_kr=float(exponente_kr),
+                  devolver_kr=True,
+              )
+              df["W_superficial"] = agua
+              df["Kr_Diario"] = kr_diario
+              humedad_relativa = df["W_superficial"] / max(float(w_max), 1e-12)
+              df["Humedad_Relativa"] = humedad_relativa
+              df["Hydric_Factor"] = 1.0 / (
+                  1.0 + np.exp(-10.0 * (humedad_relativa - 0.30))
+              )
+              df["EMERREL"] *= df["Hydric_Factor"]
+              df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+              df["Lluvia_Recarga"] = (df["Prec"] >= float(w_max)).cummax()
+              df.loc[~df["Lluvia_Recarga"], "EMERREL"] = 0.0
+
+              df["Tmedia_5d"] = df["Tmedia_aire"].rolling(
+                  window=5,
+                  min_periods=1,
+              ).mean()
+              df["Termoinhibida"] = (
+                  df["Tmedia_5d"] >= float(umbral_termoinhibicion)
+              )
+              df.loc[df["Termoinhibida"], "EMERREL"] = 0.0
+              df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+
+              df["EMERREL"] = np.clip(df["EMERREL"], 0.0, 1.0)
+              df, idx_primer_pico = aplicar_filtro_primer_pico(
+                  df,
+                  umbral=UMBRAL_PRIMER_PICO,
+              )
+              df["EMERAC"] = df["EMERREL"].cumsum()
+              total_emergencia = float(df["EMERREL"].sum())
+              df["EMERAC_NORMALIZADA"] = (
+                  df["EMERAC"] / total_emergencia
+                  if total_emergencia > 0.0
+                  else 0.0
+              )
+              return df, idx_primer_pico, ke_suelo, modulador_termico
+
+
+          def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
+          '''
+          source = replace_exact(source, insertion_anchor, common_engine, "inserción motor común")
+
+          sync_pattern = re.compile(
+              r"def sincronizar_intervalos_variables\(df_sim, df_campo, col_fecha, col_plm2\):.*?(?=def calcular_metricas_validacion_integral)",
+              re.S,
+          )
+          sync_replacement = '''def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
+              """Sincronización Event-to-Event equivalente a Lartigau.
+
+              Incluye el primer muestreo como intervalo desde el inicio de la
+              simulación y usa un único denominador simulado, truncado en la
+              última fecha de campo, tanto para flujos como para acumulados.
+              """
+              campo = df_campo.sort_values(col_fecha).reset_index(drop=True).copy()
+              if campo.empty:
+                  return pd.DataFrame()
+
+              campo[col_fecha] = pd.to_datetime(campo[col_fecha], errors="coerce")
+              campo[col_plm2] = pd.to_numeric(campo[col_plm2], errors="coerce")
+              campo = campo.dropna(subset=[col_fecha, col_plm2]).reset_index(drop=True)
+              if campo.empty:
+                  return pd.DataFrame()
+              campo[col_plm2] = campo[col_plm2].clip(lower=0.0)
+              campo["Campo_Acum_Abs"] = campo[col_plm2].cumsum()
+
+              inicio_simulacion = (
+                  pd.Timestamp(df_sim["Fecha"].min()) - pd.Timedelta(days=1)
+              )
+              registros = []
+              for i, fila in campo.iterrows():
+                  inicio = (
+                      inicio_simulacion
+                      if i == 0
+                      else pd.Timestamp(campo.iloc[i - 1][col_fecha])
+                  )
+                  fin = pd.Timestamp(fila[col_fecha])
+                  mascara = (df_sim["Fecha"] > inicio) & (df_sim["Fecha"] <= fin)
+                  registros.append(
+                      {
+                          "Inicio": inicio,
+                          "Fecha": fin,
+                          "Dias_Intervalo": int((fin - inicio).days),
+                          "Flujo_Obs_Abs": float(fila[col_plm2]),
+                          "Flujo_Sim_Abs": float(df_sim.loc[mascara, "EMERREL"].sum()),
+                          "Acum_Obs_Abs": float(fila["Campo_Acum_Abs"]),
+                          "Acum_Sim_Abs": float(
+                              df_sim.loc[df_sim["Fecha"] <= fin, "EMERREL"].sum()
+                          ),
+                      }
+                  )
+
+              resultado = pd.DataFrame(registros)
+              total_observado = float(resultado["Flujo_Obs_Abs"].sum())
+              ultima_fecha = pd.Timestamp(campo[col_fecha].max())
+              total_simulado = float(
+                  df_sim.loc[df_sim["Fecha"] <= ultima_fecha, "EMERREL"].sum()
+              )
+
+              resultado["Campo_Relativo"] = (
+                  resultado["Flujo_Obs_Abs"] / total_observado
+                  if total_observado > 0.0
+                  else 0.0
+              )
+              resultado["Sim_Relativo"] = (
+                  resultado["Flujo_Sim_Abs"] / total_simulado
+                  if total_simulado > 0.0
+                  else 0.0
+              )
+              resultado["Campo_Acumulado"] = (
+                  resultado["Acum_Obs_Abs"] / total_observado
+                  if total_observado > 0.0
+                  else 0.0
+              )
+              resultado["Sim_Acumulado"] = (
+                  resultado["Acum_Sim_Abs"] / total_simulado
+                  if total_simulado > 0.0
+                  else 0.0
+              )
+              return resultado
+
+          '''
+          source, count = sync_pattern.subn(sync_replacement, source, count=1)
+          if count != 1:
+              raise RuntimeError(f"sincronización: se esperaba 1 reemplazo y hubo {count}")
+
+          optimizer_pattern = re.compile(
+              r"def optimizar_parametros_hidricos_2d\(.*?(?=# ---------------------------------------------------------\n# 5\. INTERFAZ PRINCIPAL Y SIDEBAR)",
+              re.S,
+          )
+          optimizer_replacement = '''def optimizar_parametros_hidricos_2d(
+              df_meteo,
+              df_campo,
+              modelo_ann,
+              latitud_ta=-38.45,
+              umbral_choque_hidrico=45.0,
+              umbral_termoinhibicion=24.0,
+              exponente_kr=1.0,
+          ):
+              """Calibra cobertura y Wmax reutilizando exactamente el motor principal."""
+              campo = df_campo.copy()
+              col_fecha = "FECHA" if "FECHA" in campo.columns else campo.columns[0]
+              col_plm2 = "PLM2" if "PLM2" in campo.columns else campo.columns[1]
+              campo[col_fecha] = pd.to_datetime(campo[col_fecha], errors="coerce")
+              campo[col_plm2] = pd.to_numeric(campo[col_plm2], errors="coerce")
+              campo = campo.dropna(subset=[col_fecha, col_plm2]).sort_values(col_fecha)
+
+              rango_cobertura = np.arange(0, 101, 5)
+              rango_w_max = np.arange(10.0, 36.0, 2.0)
+              resultados = []
+
+              for cobertura in rango_cobertura:
+                  for w_max in rango_w_max:
+                      df_sim, idx_pico, ke_suelo, _ = simular_emergencia_ta(
+                          df_meteo,
+                          modelo_ann,
+                          cobertura_pct=float(cobertura),
+                          w_max=float(w_max),
+                          umbral_termoinhibicion=float(umbral_termoinhibicion),
+                          umbral_choque_hidrico=float(umbral_choque_hidrico),
+                          exponente_kr=float(exponente_kr),
+                          latitud=float(latitud_ta),
+                      )
+                      df_sync = sincronizar_intervalos_variables(
+                          df_sim,
+                          campo,
+                          col_fecha,
+                          col_plm2,
+                      )
+                      metricas = calcular_metricas_validacion_integral(df_sync)
+                      fecha_pico = (
+                          df_sim.loc[idx_pico, "Fecha"]
+                          if idx_pico is not None
+                          else pd.NaT
+                      )
+                      resultados.append(
+                          {
+                              "Cobertura_Rastrojo (%)": int(cobertura),
+                              "Ke_Suelo": round(float(ke_suelo), 3),
+                              "W_Max (mm)": float(w_max),
+                              "Exponente_Kr": float(exponente_kr),
+                              "Fecha_Primer_Pico": fecha_pico,
+                              "F1-Score": metricas["F1_Score_Coincidencia"],
+                              "NSE (Flujos Reales)": metricas["NSE_Flujos"],
+                              "KGE": metricas["KGE_Flujos"],
+                              "CCC (Acumulado)": metricas["CCC_Acumulado"],
+                              "R2": metricas["R2_Acumulado"],
+                              "RMSE": metricas["RMSE_Acumulado"],
+                          }
+                      )
+
+              df_resultados = pd.DataFrame(resultados)
+              return df_resultados.sort_values(
+                  by=["F1-Score", "KGE", "NSE (Flujos Reales)"],
+                  ascending=[False, False, False],
+              ).reset_index(drop=True)
+
+          '''
+          source, count = optimizer_pattern.subn(optimizer_replacement, source, count=1)
+          if count != 1:
+              raise RuntimeError(f"optimizador: se esperaba 1 reemplazo y hubo {count}")
+
+          old_surface = '''            x_cobertura = [0, 30, 70, 100]
+                      ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.85, 0.50, 0.25, 0.10]))
+                      mod_termico = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.90, 0.85, 0.80]))
+          '''
+          new_surface = '''            ke_val, mod_termico = parametros_superficie(cobertura_pct)
+          '''
+          source = replace_exact(source, old_surface, new_surface, "Ke derivado de cobertura")
+
+          old_water_ui = '''w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+          st.sidebar.divider()
+          '''
+          new_water_ui = '''w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
+          exponente_kr = st.sidebar.slider(
+              "Exponente Kr (secado superficial)",
+              min_value=0.0,
+              max_value=2.0,
+              value=1.0,
+              step=0.1,
+              help=(
+                  "0 = evaporación ET0×Ke sin Kr; 1 = adaptación original de "
+                  "Tres Arroyos; valores mayores intensifican la reducción de "
+                  "evaporación cuando baja el agua superficial."
+              ),
+          )
+          st.sidebar.caption(
+              f"Kr diario = (W/Wmax)^{exponente_kr:.1f}; Ke permanece limitado "
+              "por la cobertura de rastrojo."
+          )
+          st.sidebar.divider()
+          '''
+          source = replace_exact(source, old_water_ui, new_water_ui, "control Kr")
+
+          old_optimizer_call = '''                    latitud_ta=-38.4500,
+                              umbral_choque_hidrico=umbral_choque_hidrico
+                          )
+          '''
+          new_optimizer_call = '''                    latitud_ta=-38.4500,
+                              umbral_choque_hidrico=umbral_choque_hidrico,
+                              umbral_termoinhibicion=umbral_termoinhibicion,
+                              exponente_kr=exponente_kr,
+                          )
+          '''
+          source = replace_exact(source, old_optimizer_call, new_optimizer_call, "llamada optimizador")
+
+          engine_pattern = re.compile(
+              r"    df = df_meteo_raw\.copy\(\).*?    df, idx_primer_pico = aplicar_filtro_primer_pico\(\n        df,\n        umbral=UMBRAL_PRIMER_PICO\n    \)\n",
+              re.S,
+          )
+          engine_replacement = '''    df, idx_primer_pico, ke_val, mod_termico = simular_emergencia_ta(
+                  df_meteo_raw,
+                  modelo_ann,
+                  cobertura_pct=cobertura_pct,
+                  w_max=w_max_val,
+                  umbral_termoinhibicion=umbral_termoinhibicion,
+                  umbral_choque_hidrico=umbral_choque_hidrico,
+                  exponente_kr=exponente_kr,
+                  latitud=-38.4500,
+              )
+
+              df_campo, col_fecha, col_plm2 = None, None, None
+              if df_campo_raw is not None:
+                  df_campo = df_campo_raw.copy()
+                  col_fecha = "FECHA" if "FECHA" in df_campo.columns else df_campo.columns[0]
+                  col_plm2 = "PLM2" if "PLM2" in df_campo.columns else df_campo.columns[1]
+                  df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha], errors="coerce")
+                  df_campo[col_plm2] = pd.to_numeric(df_campo[col_plm2], errors="coerce")
+                  df_campo = (
+                      df_campo.dropna(subset=[col_fecha, col_plm2])
+                      .sort_values(col_fecha)
+                      .reset_index(drop=True)
+                  )
+                  df_campo[col_plm2] = df_campo[col_plm2].clip(lower=0.0)
+                  max_plm2 = float(df_campo[col_plm2].max())
+                  df_campo["Campo_Normalizado"] = (
+                      df_campo[col_plm2] / max_plm2 if max_plm2 > 0.0 else 0.0
+                  )
+          '''
+          source, count = engine_pattern.subn(engine_replacement, source, count=1)
+          if count != 1:
+              raise RuntimeError(f"motor principal: se esperaba 1 reemplazo y hubo {count}")
+
+          old_today = '''    fecha_hoy = pd.Timestamp.now().normalize()
+              if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
+              indices_pulso = [idx_primer_pico] if idx_primer_pico is not None else []
+          '''
+          new_today = '''    fecha_hoy_sistema = pd.Timestamp.now().normalize()
+              fecha_hoy = min(
+                  max(fecha_hoy_sistema, df["Fecha"].min()),
+                  df["Fecha"].max(),
+              )
+              candidatos_hoy = df.index[df["Fecha"] <= fecha_hoy].tolist()
+              idx_hoy = candidatos_hoy[-1] if candidatos_hoy else 0
+              fecha_hoy = df.loc[idx_hoy, "Fecha"]
+              indices_pulso = [idx_primer_pico] if idx_primer_pico is not None else []
+          '''
+          source = replace_exact(source, old_today, new_today, "fecha de hoy robusta")
+
+          old_forecast = '''        dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
+                  idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+                  
+                  dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum() if idx_hoy + 8 <= len(df) else dga_hoy
+          '''
+          new_forecast = '''        dga_hoy = float(
+                      df.loc[
+                          (df["Fecha"] >= fecha_inicio_ventana)
+                          & (df.index <= idx_hoy),
+                          "DG",
+                      ].sum()
+                  )
+                  idx_pronostico = min(idx_hoy + 7, len(df) - 1)
+                  dga_7dias = float(
+                      df.loc[
+                          (df["Fecha"] >= fecha_inicio_ventana)
+                          & (df.index <= idx_pronostico),
+                          "DG",
+                      ].sum()
+                  )
+          '''
+          source = replace_exact(source, old_forecast, new_forecast, "pronóstico +7 días")
+
+          compile(source, str(core_path), "exec")
+          if "rango_ke" in source:
+              raise RuntimeError("El optimizador todavía contiene un rango Ke independiente.")
+          if source.count("simular_emergencia_ta(") < 3:
+              raise RuntimeError("El motor común no está siendo reutilizado por aplicación y optimizador.")
+          if "for i, fila in campo.iterrows():" not in source:
+              raise RuntimeError("La sincronización no incluye explícitamente el primer intervalo.")
+
+          core_path.write_text(source, encoding="utf-8")
+
+          report = report_path.read_text(encoding="utf-8")
+          report = report.replace(
+              '"Módulo hídrico Kr",',
+              '"Exponente Kr configurable",',
+              1,
+          )
+          report = report.replace(
+              '"Secado exponencial dinámico específico de Tres Arroyos",',
+              'globals().get("exponente_kr", ""),',
+              1,
+          )
+          report = report.replace(
+              '"Factor Kr",',
+              '"Exponente Kr",',
+              1,
+          )
+          report = report.replace(
+              '"Dinámico: W(t-1) / Wmax",',
+              'globals().get("exponente_kr", ""),',
+              1,
+          )
+          compile(report, str(report_path), "exec")
+          report_path.write_text(report, encoding="utf-8")
+
+          workflow_path.unlink()
+          PY
+
+      - name: Validar sintaxis y diff
+        shell: bash
+        run: |
+          python -m py_compile app_emergencia_core.py app_emergencia.py
+          git diff --check
+
+      - name: Publicar refactor en la rama
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No hay cambios para publicar."
+            exit 0
+          fi
+          git commit -m "Unificar cálculo hídrico y Event-to-Event"
+          git push origin HEAD:agent/unificar-calculo-ta
