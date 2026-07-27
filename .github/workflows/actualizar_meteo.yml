@@ -16,6 +16,7 @@ concurrency:
 jobs:
   actualizar:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Descargar repositorio
@@ -33,16 +34,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install requests pandas numpy xlrd openpyxl
 
-      - name: Verificar archivos disponibles
+      - name: Verificar sintaxis del actualizador
         run: |
-          echo "Directorio actual:"
-          pwd
-          echo "Contenido del repositorio:"
-          ls -la
-          echo "Contenido de data, si existe:"
-          ls -la data || true
+          python -m py_compile actualizar_meteo_tres_arroyos.py
+          python -m py_compile postprocesar_prec_p50_tres_arroyos.py
 
-      - name: Actualizar observaciones SIGA y pronóstico ECMWF ENS
+      - name: Actualizar SIGA, puente provisional y ECMWF ENS
         env:
           # Tres Arroyos / INTA Barrow
           LATITUD: "-38.388"
@@ -55,16 +52,109 @@ jobs:
           # Respaldo local opcional si SIGA no responde.
           SIGA_LOCAL_FILE: NH0216.xls
 
-          # Variables opcionales si en el futuro SIGA exige parámetros o headers.
+          # Variables opcionales si SIGA exige parámetros o headers.
           SIGA_PARAMS_JSON: ${{ secrets.SIGA_PARAMS_JSON }}
           SIGA_POST_DATA_JSON: ${{ secrets.SIGA_POST_DATA_JSON }}
           SIGA_HEADERS_JSON: ${{ secrets.SIGA_HEADERS_JSON }}
+        run: python actualizar_meteo_tres_arroyos.py
 
-          # Mantener en false para no mezclar pronósticos vencidos con observaciones.
-          RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
+      - name: Validar serie meteorológica operativa
         run: |
-          python actualizar_meteo_tres_arroyos.py
-          python postprocesar_prec_p50_tres_arroyos.py
+          python - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+
+          archivo = Path("meteo_daily.csv")
+          estado_path = Path("data/estado_actualizacion_meteo.json")
+          if not archivo.exists():
+              raise SystemExit("No se generó meteo_daily.csv.")
+          if not estado_path.exists():
+              raise SystemExit("No se generó estado_actualizacion_meteo.json.")
+
+          df = pd.read_csv(archivo)
+          requeridas = {
+              "Fecha", "TMAX", "TMIN", "Prec", "TMEDIA",
+              "TMAX_Media_Ens", "TMIN_Media_Ens",
+              "TMEDIA_Media_Ens", "Prec_Media_Ens",
+              "TMAX_P50", "TMIN_P50", "TMEDIA_P50", "Prec_P50",
+              "Fuente", "TipoDato", "CalidadDato", "N_miembros",
+          }
+          faltantes = requeridas.difference(df.columns)
+          if faltantes:
+              raise SystemExit(f"Faltan columnas: {sorted(faltantes)}")
+
+          df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+          if df["Fecha"].isna().any():
+              raise SystemExit("Hay fechas inválidas.")
+          if df["Fecha"].duplicated().any():
+              raise SystemExit("Hay fechas duplicadas.")
+
+          criticas = df[["TMAX", "TMIN", "Prec", "TMEDIA"]].apply(
+              pd.to_numeric, errors="coerce"
+          )
+          if criticas.isna().any().any():
+              raise SystemExit("Hay datos meteorológicos críticos nulos.")
+          if (criticas["TMAX"] < criticas["TMIN"]).any():
+              raise SystemExit("Se detectó TMAX menor que TMIN.")
+          if (criticas["Prec"] < 0).any():
+              raise SystemExit("Se detectó precipitación negativa.")
+
+          esperadas = pd.date_range(df["Fecha"].min(), df["Fecha"].max(), freq="D")
+          faltan_fechas = esperadas.difference(pd.DatetimeIndex(df["Fecha"]))
+          if len(faltan_fechas):
+              raise SystemExit(
+                  f"La serie tiene {len(faltan_fechas)} días faltantes: "
+                  + ", ".join(x.strftime("%Y-%m-%d") for x in faltan_fechas[:15])
+              )
+
+          tipos_validos = {"Observado", "Provisional", "Pronostico"}
+          desconocidos = set(df["TipoDato"].dropna().astype(str)) - tipos_validos
+          if desconocidos:
+              raise SystemExit(f"Tipos de dato desconocidos: {sorted(desconocidos)}")
+
+          pron = df["TipoDato"].astype(str).eq("Pronostico")
+          if not pron.any():
+              raise SystemExit("No hay filas de pronóstico.")
+
+          for operativo, p50 in (
+              ("TMAX", "TMAX_P50"),
+              ("TMIN", "TMIN_P50"),
+              ("TMEDIA", "TMEDIA_P50"),
+              ("Prec", "Prec_P50"),
+          ):
+              a = pd.to_numeric(df.loc[pron, operativo], errors="coerce")
+              b = pd.to_numeric(df.loc[pron, p50], errors="coerce")
+              if not np.allclose(a, b, atol=1e-9, equal_nan=False):
+                  raise SystemExit(f"{operativo} no coincide con {p50}.")
+
+          miembros = pd.to_numeric(df.loc[pron, "N_miembros"], errors="coerce")
+          if miembros.isna().any() or (miembros < 30).any():
+              raise SystemExit("El pronóstico tiene menos de 30 miembros válidos.")
+
+          hoy = pd.Timestamp.now(tz="America/Argentina/Buenos_Aires").normalize().tz_localize(None)
+          observados = df["TipoDato"].astype(str).eq("Observado")
+          provisionales = df["TipoDato"].astype(str).eq("Provisional")
+          if (df.loc[observados, "Fecha"] >= hoy).any():
+              raise SystemExit("Una observación SIGA fue ubicada en hoy o el futuro.")
+          if (df.loc[provisionales, "Fecha"] >= hoy).any():
+              raise SystemExit("Un dato provisional fue ubicado en hoy o el futuro.")
+          if (df.loc[pron, "Fecha"] < hoy).any():
+              raise SystemExit("Un pronóstico fue ubicado en una fecha vencida.")
+
+          estado = json.loads(estado_path.read_text(encoding="utf-8"))
+          if estado.get("estadistico_operativo") != "P50":
+              raise SystemExit("El estado no registra P50 como estadístico operativo.")
+          if estado.get("huecos_finales"):
+              raise SystemExit(f"El estado registra huecos: {estado['huecos_finales']}")
+
+          print(df.groupby(["Fuente", "TipoDato", "CalidadDato"], dropna=False).size())
+          print(df.tail(12).to_string(index=False))
+          print(json.dumps(estado, ensure_ascii=False, indent=2))
+          PY
 
       - name: Guardar archivos actualizados
         run: |
@@ -74,59 +164,46 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           mkdir -p data/historico_pronosticos
-
-          # Guardar temporalmente los archivos generados por esta corrida.
           TMPDIR_GENERADO="$(mktemp -d)"
 
           if [ -f meteo_daily.csv ]; then
             cp meteo_daily.csv "$TMPDIR_GENERADO/meteo_daily.csv"
           fi
 
-          mkdir -p "$TMPDIR_GENERADO/data"
           mkdir -p "$TMPDIR_GENERADO/data/historico_pronosticos"
-
-          if [ -f data/estado_actualizacion_meteo.json ]; then
-            cp data/estado_actualizacion_meteo.json "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json"
-          fi
-
-          if [ -f data/siga_tres_arroyos_observado.csv ]; then
-            cp data/siga_tres_arroyos_observado.csv "$TMPDIR_GENERADO/data/siga_tres_arroyos_observado.csv"
-          fi
+          for archivo in data/estado_actualizacion_meteo.json data/siga_tres_arroyos_observado.csv; do
+            if [ -f "$archivo" ]; then
+              mkdir -p "$TMPDIR_GENERADO/$(dirname "$archivo")"
+              cp "$archivo" "$TMPDIR_GENERADO/$archivo"
+            fi
+          done
 
           if [ -d data/historico_pronosticos ]; then
             cp -a data/historico_pronosticos/. "$TMPDIR_GENERADO/data/historico_pronosticos/" || true
           fi
 
-          # Sincronizar con la última versión remota.
-          # Esto evita conflictos de rebase en archivos generados automáticamente.
           git fetch origin main
           git reset --hard origin/main
 
-          # Reaplicar los archivos generados por esta corrida.
           mkdir -p data/historico_pronosticos
-
           if [ -f "$TMPDIR_GENERADO/meteo_daily.csv" ]; then
             cp "$TMPDIR_GENERADO/meteo_daily.csv" meteo_daily.csv
           fi
-
-          if [ -f "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json" ]; then
-            cp "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json" data/estado_actualizacion_meteo.json
-          fi
-
-          if [ -f "$TMPDIR_GENERADO/data/siga_tres_arroyos_observado.csv" ]; then
-            cp "$TMPDIR_GENERADO/data/siga_tres_arroyos_observado.csv" data/siga_tres_arroyos_observado.csv
-          fi
-
+          for archivo in data/estado_actualizacion_meteo.json data/siga_tres_arroyos_observado.csv; do
+            if [ -f "$TMPDIR_GENERADO/$archivo" ]; then
+              mkdir -p "$(dirname "$archivo")"
+              cp "$TMPDIR_GENERADO/$archivo" "$archivo"
+            fi
+          done
           if [ -d "$TMPDIR_GENERADO/data/historico_pronosticos" ]; then
             cp -a "$TMPDIR_GENERADO/data/historico_pronosticos/." data/historico_pronosticos/ || true
           fi
 
           git add -A meteo_daily.csv data/
-
           if git diff --cached --quiet; then
             echo "No hay cambios para guardar."
             exit 0
           fi
 
-          git commit -m "Actualiza SIGA Tres Arroyos y ECMWF ENS"
+          git commit -m "Actualiza SIGA y ECMWF ENS P50 Tres Arroyos"
           git push origin HEAD:main
