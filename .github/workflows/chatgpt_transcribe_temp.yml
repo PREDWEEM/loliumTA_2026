@@ -1,7 +1,7 @@
 name: ChatGPT temporary transcription test
 on:
-  push:
-    branches: [chatgpt-transcribe-temp]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
 jobs:
