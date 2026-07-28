@@ -1,0 +1,12 @@
+name: ChatGPT temporary transcription test
+on:
+  push:
+    branches: [chatgpt-transcribe-temp]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test runner
+        run: echo "CHATGPT_TRANSCRIPTION_RUNNER_OK"
