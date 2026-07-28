@@ -1,12 +1,109 @@
-name: ChatGPT temporary transcription test
+name: ChatGPT private transcription
 on:
   pull_request:
     branches: [main]
 permissions:
   contents: read
 jobs:
-  test:
+  transcribe:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Test runner
-        run: echo "CHATGPT_TRANSCRIPTION_RUNNER_OK"
+      - name: Rebuild audio
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > rebuild.py <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import urllib.request
+
+          shas = [
+              "ff18a1f010a1c75c1e719012630c91e6c9b823b9",
+              "bcc07c6a65405dbf75a104e38f2f57de789ccdd7",
+              "1e2f17a35c93d23337318cbff080b77c261a0c56",
+              "6d51a3abc9d8f2843064b1f8b3c74bccd22c6362",
+              "026b3c65d2c1bf40f039636e47fc3c61149d28e0",
+              "aa928ae34b72fb2c27ac888fb4f65f0c43bbb8f4",
+              "15032a047b330a19fcc1dcf9b58d1c4e8f887e24",
+              "98a84ba2c035575d6bdc9f056bb64233785c8aaf",
+              "dc93d9e432d7476261f746e19fe02b6845c68dca",
+              "50948624ba85d122b931371dbcdfab315de35daf",
+              "a122a805b5b2339aace2071db661cbb2ba88c4f1",
+              "bdfc728cbe3eb457449b17e9920b42588ad45426",
+              "3bb710679bd1041a2a9e9fde28093618703a15bb",
+              "98e9390f77b432757679812b409a337d929699d5",
+              "b223afecf4bc011a77c9eb136963f49e44329085",
+              "073cd15bf97d6db912ce66bfb1d189e8ba3546e3",
+              "9084e20a7dc30f8cd5340cabc4689054a30d2015",
+              "cd1201c3da7cadfee9203356704429eae757a407",
+              "a947136d95bddd6bd62a7a2d207b347174e12f55",
+              "05ebcc333a7bf9ca2c5bc5df7faa2f91c71b1b61",
+              "9f44da72827bca6ca8204143df04f6a84fff9d22",
+              "274335a3154f8a185a97f269a15673592564c64a",
+              "57522a692e76ecb6ec663ed4c8ed0dbb8e6af250",
+              "ab00cd67e0af350ef3d6800fe81220199e324930",
+              "3c2cfafb8d5aecd5c4d1ef6db0ba3ba9fd33d79f",
+              "6a1fc90870d8b493bded0c0adba76956a7c888b4",
+              "d76ce765168b06ef413e6a1bf7acae400e2e3cd2",
+          ]
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          pieces = []
+          for sha in shas:
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                  },
+              )
+              with urllib.request.urlopen(req) as response:
+                  obj = json.load(response)
+              pieces.append(base64.b64decode(obj["content"]).decode("utf-8"))
+          encoded = "".join(pieces)
+          audio = base64.b64decode(encoded)
+          digest = hashlib.sha256(audio).hexdigest()
+          expected = "85872d8a35abd579bf29456785d2969dbd1024cbeebf8bfe513ddfbe09ea0f65"
+          if digest != expected:
+              raise SystemExit(f"SHA256 mismatch: {digest}")
+          with open("audio.ogg", "wb") as f:
+              f.write(audio)
+          print(f"Audio reconstructed: {len(audio)} bytes; SHA256 OK")
+          PY
+          python3 rebuild.py
+          ffmpeg -hide_banner -loglevel error -y -i audio.ogg -ar 16000 -ac 1 audio.wav
+      - name: Install Whisper
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install openai-whisper
+      - name: Transcribe Spanish audio
+        run: |
+          cat > transcribe.py <<'PY'
+          import whisper
+
+          model = whisper.load_model("small")
+          result = model.transcribe(
+              "audio.wav",
+              language="es",
+              fp16=False,
+              temperature=0.0,
+              beam_size=5,
+              condition_on_previous_text=True,
+              initial_prompt=(
+                  "Mensaje profesional sobre PREDWEEM y Syngenta. "
+                  "Área digital, plataforma digital, herramienta predictiva, "
+                  "malezas, Lolium, raigrás, integración y propuesta."
+              ),
+          )
+          print("===TRANSCRIPCION_INICIO===")
+          print(result["text"].strip())
+          print("===TRANSCRIPCION_FIN===")
+          print("===SEGMENTOS_INICIO===")
+          for segment in result["segments"]:
+              print(f'[{segment["start"]:.2f}-{segment["end"]:.2f}] {segment["text"].strip()}')
+          print("===SEGMENTOS_FIN===")
+          PY
+          python3 transcribe.py
