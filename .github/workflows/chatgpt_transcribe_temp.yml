@@ -110,4 +110,10 @@ jobs:
               print(f'[{segment["start"]:.2f}-{segment["end"]:.2f}] {segment["text"].strip()}')
           print("===SEGMENTOS_FIN===")
           PY
-          python3 transcribe.py
+          python3 transcribe.py | tee transcript.txt
+      - name: Upload transcription
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcription-output
+          path: transcript.txt
+          retention-days: 1
