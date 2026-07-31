@@ -1,9 +1,9 @@
 {
-  "ejecucion_utc": "2026-07-31T12:25:35+00:00",
+  "ejecucion_utc": "2026-07-31T20:19:42+00:00",
   "sitio": "Tres Arroyos / INTA Barrow",
   "latitud": -38.388,
   "longitud": -60.346,
-  "estado_siga": "SIGA_remoto",
+  "estado_siga": "SIGA_cache",
   "ultima_observacion_siga": "2026-07-28",
   "fuente_provisional": "ECMWF_IFS_HISTORICO",
   "inicio_provisional": "2026-07-29",
