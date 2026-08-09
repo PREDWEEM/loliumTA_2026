@@ -8,11 +8,17 @@ interfaz, una descarga Excel completa de los resultados generados.
 """
 from pathlib import Path
 
+from visualizacion_horizonte_pronostico import mostrar_horizonte_pronostico
+
 _CORE_APP = Path(__file__).with_name("app_emergencia_core.py")
 exec(
     compile(_CORE_APP.read_text(encoding="utf-8"), str(_CORE_APP), "exec"),
     globals(),
 )
+
+if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
+    st.divider()
+    mostrar_horizonte_pronostico(df, "Tres Arroyos")
 
 
 def _fecha_reporte(valor):
@@ -176,29 +182,13 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
         date_format="dd/mm/yyyy",
     ) as writer:
         _escribir_hoja(writer, df, "Resultados_Diarios")
-        _escribir_hoja(
-            writer,
-            globals().get("df_sincronizado"),
-            "Validacion_Intervalos",
-        )
-        _escribir_hoja(
-            writer,
-            globals().get("df_campo"),
-            "Observaciones_Campo",
-        )
+        _escribir_hoja(writer, globals().get("df_sincronizado"), "Validacion_Intervalos")
+        _escribir_hoja(writer, globals().get("df_campo"), "Observaciones_Campo")
         _escribir_hoja(writer, resumen_decision, "Resumen_Decision")
         _escribir_hoja(writer, metricas_reporte, "Metricas_Validacion")
         _escribir_hoja(writer, parametros_reporte, "Parametros_Modelo")
-        _escribir_hoja(
-            writer,
-            globals().get("df_desde_pico"),
-            "Tiempo_Termico",
-        )
-        _escribir_hoja(
-            writer,
-            globals().get("tabla_optima"),
-            "Optimizador_2D",
-        )
+        _escribir_hoja(writer, globals().get("df_desde_pico"), "Tiempo_Termico")
+        _escribir_hoja(writer, globals().get("tabla_optima"), "Optimizador_2D")
 
     reporte_excel_final.seek(0)
 
@@ -213,10 +203,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
         label="📊 Descargar resultados completos en Excel",
         data=reporte_excel_final.getvalue(),
         file_name="PREDWEEM_Tres_Arroyos_Resultados_Completos.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
         key="descarga_excel_resultados_final_tres_arroyos",
     )
