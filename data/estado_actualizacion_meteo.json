@@ -1,5 +1,5 @@
 {
-  "ejecucion_utc": "2026-09-08T21:19:02+00:00",
+  "ejecucion_utc": "2026-09-09T14:44:48+00:00",
   "sitio": "Tres Arroyos / INTA Barrow",
   "latitud": -38.388,
   "longitud": -60.346,
@@ -7,12 +7,12 @@
   "ultima_observacion_siga": "2026-09-03",
   "fuente_provisional": "ECMWF_IFS_HISTORICO",
   "inicio_provisional": "2026-09-04",
-  "fin_provisional": "2026-09-07",
-  "filas_provisionales": 4,
+  "fin_provisional": "2026-09-08",
+  "filas_provisionales": 5,
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "estadistico_operativo": "P50",
-  "inicio_pronostico": "2026-09-08",
-  "fin_pronostico": "2026-09-14",
+  "inicio_pronostico": "2026-09-09",
+  "fin_pronostico": "2026-09-15",
   "miembros_validos_min": 51,
   "huecos_finales": []
 }
