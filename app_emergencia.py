@@ -3,16 +3,21 @@
 Punto de entrada de PREDWEEM Tres Arroyos.
 
 La aplicación científica original se conserva en ``app_emergencia_core.py``.
-Este archivo la ejecuta sin alterar su lógica y agrega, al final de toda la
-interfaz, una descarga Excel completa de los resultados generados.
+Antes de ejecutarla se aplica una capa reproducible que incorpora el
+decaimiento desde el 15 de abril y reemplaza la escala logarítmica del gráfico
+principal por intensidad relativa de emergencia (0–100 %). Al final se agrega
+la descarga Excel completa de los resultados generados.
 """
 from pathlib import Path
 
 from visualizacion_horizonte_pronostico import mostrar_horizonte_pronostico
+from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_relativa
 
 _CORE_APP = Path(__file__).with_name("app_emergencia_core.py")
+_core_source = _CORE_APP.read_text(encoding="utf-8")
+_core_source = parchear_visualizacion_intensidad_relativa(_core_source)
 exec(
-    compile(_CORE_APP.read_text(encoding="utf-8"), str(_CORE_APP), "exec"),
+    compile(_core_source, str(_CORE_APP), "exec"),
     globals(),
 )
 
