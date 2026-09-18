@@ -67,6 +67,7 @@ jobs:
 
           import numpy as np
           import pandas as pd
+          from actualizar_meteo_tres_arroyos import CAMPANIA_END, hoy_argentina
 
           archivo = Path("meteo_daily.csv")
           estado_path = Path("data/estado_actualizacion_meteo.json")
@@ -117,7 +118,9 @@ jobs:
               raise SystemExit(f"Tipos de dato desconocidos: {sorted(desconocidos)}")
 
           pron = df["TipoDato"].astype(str).eq("Pronostico")
-          if not pron.any():
+          if (df["Fecha"].dt.date > CAMPANIA_END).any():
+              raise SystemExit("Hay fechas posteriores al 1 de octubre de 2026.")
+          if not pron.any() and hoy_argentina() <= CAMPANIA_END:
               raise SystemExit("No hay filas de pronóstico.")
 
           for operativo, p50 in (

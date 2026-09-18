@@ -38,6 +38,7 @@ LONGITUD = float(os.getenv("LONGITUD", "-60.346"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
 CAMPANIA_START = date(2026, 1, 1)
+CAMPANIA_END = date(2026, 10, 1)  # Última fecha meteorológica, inclusive.
 HORIZONTE_DIAS = 7
 TBASE = 2.0
 
@@ -461,6 +462,7 @@ def obtener_siga_dataframe(
     fecha_fin: date,
     archivo_forzado: Path | None = None,
 ) -> tuple[pd.DataFrame, str]:
+    fecha_fin = min(fecha_fin, CAMPANIA_END)
     errores: list[str] = []
 
     if SIGA_URL_TEMPLATE and archivo_forzado is None:
@@ -822,8 +824,13 @@ def procesar_ecmwf_ens(datos: dict[str, Any]) -> pd.DataFrame:
 
 
 def cargar_pronostico_ecmwf() -> pd.DataFrame:
+    if hoy_argentina() > CAMPANIA_END:
+        return pd.DataFrame(columns=COLUMNAS_COMPLETAS)
     datos = consultar_ecmwf_ens()
     pronostico = procesar_ecmwf_ens(datos)
+    pronostico = pronostico.loc[
+        pd.to_datetime(pronostico["Fecha"]).dt.date <= CAMPANIA_END
+    ].copy()
     DIRECTORIO_PRONOSTICOS.mkdir(parents=True, exist_ok=True)
     marca = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archivo = (
@@ -859,6 +866,8 @@ def validar_serie_final(df: pd.DataFrame, fecha_final: date) -> None:
     fechas = pd.to_datetime(df["Fecha"], errors="coerce")
     if fechas.isna().any():
         raise ValueError("La serie final contiene fechas inválidas.")
+    if (fechas.dt.date > CAMPANIA_END).any():
+        raise ValueError("Hay fechas posteriores al cierre de campaña.")
     if fechas.duplicated().any():
         raise ValueError("La serie final contiene fechas duplicadas.")
 
@@ -906,7 +915,7 @@ def construir_meteo_daily(
     siga_file: Path | None = None,
 ) -> pd.DataFrame:
     hoy = hoy_argentina()
-    ayer = hoy - timedelta(days=1)
+    ayer = min(hoy - timedelta(days=1), CAMPANIA_END)
 
     observaciones, estado_siga = obtener_siga_dataframe(
         CAMPANIA_START,
@@ -922,7 +931,7 @@ def construir_meteo_daily(
     pronostico = pronostico.loc[
         pd.to_datetime(pronostico["Fecha"]).dt.date >= hoy
     ].copy()
-    if pronostico.empty:
+    if pronostico.empty and hoy <= CAMPANIA_END:
         raise ValueError("ECMWF ENS no entregó el pronóstico desde hoy.")
 
     combinado = pd.concat(
@@ -940,7 +949,10 @@ def construir_meteo_daily(
     combinado = combinado.sort_values(["Fecha_dt", "_prioridad"])
     combinado = combinado.drop_duplicates(subset=["Fecha_dt"], keep="first")
     combinado = combinado.sort_values("Fecha_dt")
-    fecha_final = pd.to_datetime(pronostico["Fecha"]).max().date()
+    fecha_final = (
+        pd.to_datetime(pronostico["Fecha"]).max().date()
+        if not pronostico.empty else CAMPANIA_END
+    )
     combinado = combinado.loc[
         (combinado["Fecha_dt"].dt.date >= CAMPANIA_START)
         & (combinado["Fecha_dt"].dt.date <= fecha_final)
@@ -969,13 +981,14 @@ def construir_meteo_daily(
             str(provisionales["Fecha"].max()) if not provisionales.empty else None
         ),
         "filas_provisionales": int(len(provisionales)),
-        "fuente_pronostico": "ECMWF_IFS_ENS_025",
+        "fecha_fin_campania": CAMPANIA_END.isoformat(),
+        "fuente_pronostico": "ECMWF_IFS_ENS_025" if len(pronostico) else None,
         "estadistico_operativo": "P50",
-        "inicio_pronostico": str(pronostico["Fecha"].min()),
-        "fin_pronostico": str(pronostico["Fecha"].max()),
+        "inicio_pronostico": str(pronostico["Fecha"].min()) if len(pronostico) else None,
+        "fin_pronostico": str(pronostico["Fecha"].max()) if len(pronostico) else None,
         "miembros_validos_min": int(
             pd.to_numeric(pronostico["N_miembros"], errors="coerce").min()
-        ),
+        ) if len(pronostico) else None,
         "huecos_finales": calcular_huecos(combinado, CAMPANIA_START, fecha_final),
     }
     ARCHIVO_ESTADO.parent.mkdir(parents=True, exist_ok=True)
@@ -999,7 +1012,7 @@ def construir_meteo_daily(
 
 def validar_siga(siga_file: Path | None = None) -> None:
     hoy = hoy_argentina()
-    ayer = hoy - timedelta(days=1)
+    ayer = min(hoy - timedelta(days=1), CAMPANIA_END)
     observaciones, estado_siga = obtener_siga_dataframe(
         CAMPANIA_START,
         ayer,

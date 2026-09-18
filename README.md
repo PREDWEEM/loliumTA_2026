@@ -57,6 +57,17 @@ La actualización automática se ejecuta a las **07:30** y **15:30**, hora argen
 
 La aplicación está preparada para utilizar los datos, el logo y los activos del modelo desde el checkout local. En Streamlit Community Cloud debe mantenerse la rama `main` y el archivo principal `app_emergencia.py`. Consulte [PRIVATE_REPOSITORY.md](PRIVATE_REPOSITORY.md).
 
+### Fin de carga de la campaña 2026
+
+La última fecha meteorológica es el **1 de octubre de 2026, inclusive**.
+El pronóstico de siete días se recorta al alcanzar ese límite, tanto en la
+serie operativa como en los nuevos archivos de pronóstico. Desde el 2 de
+octubre no se consulta el ensamble; las actualizaciones de SIGA y del puente
+provisional quedan limitadas al 1 de octubre, permitiendo incorporar la
+observación de ese día cuando se publique y reemplazar datos provisionales.
+La validación admite una serie cerrada sin pronóstico y rechaza fechas
+posteriores al cierre. Los archivos históricos existentes se conservan.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.
