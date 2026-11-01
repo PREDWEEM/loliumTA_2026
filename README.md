@@ -53,6 +53,45 @@ El archivo `data/estado_actualizacion_meteo.json` registra la última observaci�
 
 La actualización automática se ejecuta a las **07:30** y **15:30**, hora argentina, y también puede iniciarse manualmente mediante GitHub Actions.
 
+## Alerta de flushes
+
+La página muestra la **alerta de flushes** de *Lolium multiflorum*: la probabilidad de que en los próximos 7 días emerja
+≥ 5 % de la campaña, con dos niveles (*Atención* desde 15 %, *Alerta* desde 25 %), la emergencia acumulada esperada y la
+ventana de control post-emergente (600–800 °Cd desde el inicio). El modelo (`alerta_lolmu.py`, `alerta_lolmu_params.json`,
+`visualizacion_alerta_lolmu.py`) es el calibrado con 17 campañas de Bordenave y combina, con la información disponible a la
+fecha de emisión:
+
+1. el calendario medio de emergencia de LOLMU;
+2. la respuesta a las lluvias ya registradas (balance de agua y tiempo térmico de suelo);
+3. opcionalmente, la fecha en que se vieron las primeras plántulas del lote, que además ancla el reloj térmico (sin ese dato,
+   se usa el primer pico del motor PREDWEEM como inicio estimado);
+4. opcionalmente, conteos de plántulas (tabla o planilla Excel/CSV con una columna «Fecha» y una por marco).
+
+**Validación en Tres Arroyos.** Sin reajustar el modelo, con las campañas 2023, 2024 y 2026 publicadas en el gemelo
+digital de Tres Arroyos (conteos y clima de cada año; 53 intervalos entre conteos, 9 con flush):
+
+| Información disponible | AUC | Flushes en *Alerta* | Intervalos en *Alerta* |
+|---|---|---|---|
+| Solo clima | 0,93 | 9 de 9 | 43 % |
+| + fecha de primeras plántulas | 0,94 | 9 de 9 | 40 % |
+| + conteos | 0,93 | 9 de 9 | 38 % |
+
+Por campaña (con primeras plántulas): 2023 AUC 0,97; 2024 0,95; 2026 0,82. Con los mismos intervalos, el gemelo digital
+dio AUC 0,79 (0,96 en 2023, 0,55 en 2024 y 0,96 en 2026; 2026 se usó en su calibración). 2025 no se evaluó: el gemelo
+solo tiene la curva procesada, sin clima. Límites: tres campañas y 9 flushes; en 2023 y 2024 el primer conteo ya tenía
+plántulas; buena parte de los conteos de 2024 y 2026 son cada 2–4 semanas (la alerta con conteos está calibrada con conteos
+semanales). La curva acumulada es la de Bordenave; en 2026 la emergencia de Tres Arroyos se concentró más tarde.
+
+La barra lateral conserva solo los parámetros que usa la alerta (temperaturas base, óptima y crítica, y objetivos 600 y
+800 °Cd); los del motor PREDWEEM quedan en sus valores por defecto (cobertura de rastrojo 20 %).
+
+## Campaña vigente y actualización automática
+
+La campaña meteorológica va del **1 de enero al 1 de octubre** de cada año (`_campania_vigente()` en
+`actualizar_meteo_tres_arroyos.py`; las variables `CAMPANIA_INICIO` y `CAMPANIA_FIN` la fijan a mano). Después del
+1 de octubre la serie queda cerrada; el **1 de enero siguiente** la carga se reinicia sola. Durante los primeros 21 días se
+admite una serie sin observaciones SIGA del año (SIGA publica con demora): se usan el puente provisional y el pronóstico ECMWF.
+
 ## Despliegue privado
 
 La aplicación está preparada para utilizar los datos, el logo y los activos del modelo desde el checkout local. En Streamlit Community Cloud debe mantenerse la rama `main` y el archivo principal `app_emergencia.py`. Consulte [PRIVATE_REPOSITORY.md](PRIVATE_REPOSITORY.md).

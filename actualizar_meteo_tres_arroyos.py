@@ -37,8 +37,26 @@ LATITUD = float(os.getenv("LATITUD", "-38.388"))
 LONGITUD = float(os.getenv("LONGITUD", "-60.346"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
-CAMPANIA_START = date(2026, 1, 1)
-CAMPANIA_END = date(2026, 10, 1)  # Última fecha meteorológica, inclusive.
+
+
+def _campania_vigente() -> tuple[date, date]:
+    """Campaña meteorológica operativa: del 1 de enero al 1 de octubre del año en curso (hora de Argentina).
+
+    Del 2 de octubre al 31 de diciembre la campaña del año queda cerrada (la serie se conserva sin pronóstico) y el
+    1 de enero comienza automáticamente la carga de la campaña nueva. Las variables de entorno CAMPANIA_INICIO y
+    CAMPANIA_FIN (AAAA-MM-DD) permiten fijar otras fechas.
+    """
+    hoy = datetime.now(ZoneInfo(ZONA_HORARIA)).date()
+    inicio = os.getenv("CAMPANIA_INICIO", "").strip()
+    fin = os.getenv("CAMPANIA_FIN", "").strip()
+    return (date.fromisoformat(inicio) if inicio else date(hoy.year, 1, 1),
+            date.fromisoformat(fin) if fin else date(hoy.year, 10, 1))
+
+
+CAMPANIA_START, CAMPANIA_END = _campania_vigente()  # CAMPANIA_END: última fecha meteorológica, inclusive.
+# Días desde el comienzo de la campaña en que se admite una serie sin observaciones SIGA del año
+# (SIGA publica con demora; mientras tanto se usan el puente provisional y el pronóstico ECMWF).
+DIAS_TOLERANCIA_INICIO = 21
 HORIZONTE_DIAS = 7
 TBASE = 2.0
 
@@ -507,7 +525,8 @@ def obtener_siga_dataframe(
             cache["Fecha_dt"] = pd.to_datetime(cache["Fecha"], errors="coerce")
             cache = cache.dropna(subset=["Fecha_dt"])
             cache = cache.loc[
-                cache["Fecha_dt"].dt.date < fecha_fin + timedelta(days=1)
+                (cache["Fecha_dt"].dt.date >= CAMPANIA_START)
+                & (cache["Fecha_dt"].dt.date < fecha_fin + timedelta(days=1))
             ].copy()
             cache["Fecha"] = cache["Fecha_dt"].dt.strftime("%Y-%m-%d")
             cache = cache.drop(columns=["Fecha_dt"])
@@ -519,7 +538,16 @@ def obtener_siga_dataframe(
 
 
 def validar_continuidad_observada(observaciones: pd.DataFrame) -> date:
+    """Última fecha observada por SIGA (sin huecos desde el 1 de enero).
+
+    En los primeros días de la campaña SIGA puede no haber publicado aún datos del año: se devuelve el 31 de
+    diciembre anterior y el puente provisional ECMWF cubre desde el 1 de enero.
+    """
     if observaciones.empty:
+        if (hoy_argentina() - CAMPANIA_START).days <= DIAS_TOLERANCIA_INICIO:
+            print("ℹ️ Comienzo de campaña: SIGA todavía no publicó observaciones del año; "
+                  "se usan el puente provisional y el pronóstico ECMWF.")
+            return CAMPANIA_START - timedelta(days=1)
         raise ValueError("SIGA no aportó ninguna observación válida.")
 
     fechas = pd.DatetimeIndex(
@@ -970,7 +998,7 @@ def construir_meteo_daily(
         "latitud": LATITUD,
         "longitud": LONGITUD,
         "estado_siga": estado_siga,
-        "ultima_observacion_siga": ultima_observacion.isoformat(),
+        "ultima_observacion_siga": ultima_observacion.isoformat() if ultima_observacion >= CAMPANIA_START else None,
         "fuente_provisional": (
             "ECMWF_IFS_HISTORICO" if not provisionales.empty else None
         ),
