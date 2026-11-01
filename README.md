@@ -82,6 +82,13 @@ solo tiene la curva procesada, sin clima. Límites: tres campañas y 9 flushes; 
 plántulas; buena parte de los conteos de 2024 y 2026 son cada 2–4 semanas (la alerta con conteos está calibrada con conteos
 semanales). La curva acumulada es la de Bordenave; en 2026 la emergencia de Tres Arroyos se concentró más tarde.
 
+**Curva acumulada con calendario propio.** El panel de emergencia acumulada usa el calendario de Tres Arroyos
+(`calendario_local.py`, con los conteos de `data/campanias/`; curva media y rango mínimo–máximo, sin la campaña en curso).
+Prediciendo cada campaña con las otras dos, el error medio de la curva en las fechas de conteo fue 2,2 / 4,4 / 8,9 puntos
+(2023 / 2024 / 2026), contra 7,6 / 6,9 / 13,3 con el calendario de Bordenave. La probabilidad de flush sigue con el
+calendario de Bordenave: recalibrarla con estas campañas no la mejoró (AUC 0,937 contra 0,944), y usar el calendario
+local dentro de la alerta la empeoró levemente (0,924, 8 de 9 flushes).
+
 La barra lateral conserva solo los parámetros que usa la alerta (temperaturas base, óptima y crítica, y objetivos 600 y
 800 °Cd); los del motor PREDWEEM quedan en sus valores por defecto (cobertura de rastrojo 20 %).
 
