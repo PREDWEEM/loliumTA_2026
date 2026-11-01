@@ -135,15 +135,25 @@ NOTA_TRES_ARROYOS = (
     "Por campaña: 2023 AUC 0,97; 2024 0,95; 2026 0,82.\n\n"
     "**Límites en Tres Arroyos.** Tres campañas y 9 flushes. En 2023 y 2024 el primer conteo ya tenía plántulas (no hay "
     "cero inicial), y gran parte de los conteos de 2024 y 2026 son cada 2–4 semanas: la alerta con conteos está calibrada "
-    "con conteos semanales, por eso conviene usar sobre todo la fecha de primeras plántulas. La curva acumulada es la de "
-    "Bordenave; en Tres Arroyos 2026 la emergencia se concentró más tarde (error medio de 14 puntos)."
+    "con conteos semanales, por eso conviene usar sobre todo la fecha de primeras plántulas.\n\n"
+    "**Curva acumulada.** El panel inferior usa el calendario propio de Tres Arroyos (conteos de `data/campanias/`), "
+    "sin la campaña en curso. Prediciendo cada campaña con las otras dos, el error medio de la curva en las fechas de "
+    "conteo fue 2,2 / 4,4 / 8,9 puntos (2023 / 2024 / 2026), contra 7,6 / 6,9 / 13,3 con el calendario de Bordenave. "
+    "Recalibrar la probabilidad de flush con estas campañas no la mejoró, y usar el calendario local dentro de la alerta "
+    "la empeoró levemente (AUC 0,92 contra 0,94): por eso la alerta sigue con el calendario de Bordenave. Con tres "
+    "campañas, la banda del panel es el mínimo y el máximo observados; se afirma a medida que se suman campañas."
 )
 
 # Alerta de flushes (independiente del motor científico; no modifica sus resultados)
 if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and not df_meteo_raw.empty:
     st.divider()
     try:
+        from calendario_local import construir_calendario
         from visualizacion_alerta_lolmu import mostrar_alerta_lolmu
+
+        # calendario propio de Tres Arroyos, sin la campaña en curso (su total todavía no se conoce)
+        _anio_campania = int(pd.to_datetime(df_meteo_raw["Fecha"], errors="coerce").max().year)
+        _calendario_local = construir_calendario(excluir=(_anio_campania,))
 
         _idx_pico = globals().get("idx_primer_pico")
         _inicio_predicho = (
@@ -161,6 +171,7 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             tt_limite=float(globals().get("dga_critico", 800.0)),
             localidad="Tres Arroyos",
             nota_sitio=NOTA_TRES_ARROYOS,
+            calendario_local=_calendario_local,
         )
     except Exception as _error_alerta:  # noqa: BLE001
         st.warning(f"No se pudo calcular la alerta: {_error_alerta}")

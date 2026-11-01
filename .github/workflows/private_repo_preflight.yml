@@ -41,6 +41,7 @@ jobs:
             "alerta_lolmu.py"
             "alerta_lolmu_params.json"
             "visualizacion_alerta_lolmu.py"
+            "calendario_local.py"
             "meteo_daily.csv"
             "logo.png"
             "IW.npy"
@@ -73,7 +74,8 @@ jobs:
             actualizar_meteo_tres_arroyos.py \
             postprocesar_prec_p50_tres_arroyos.py \
             alerta_lolmu.py \
-            visualizacion_alerta_lolmu.py
+            visualizacion_alerta_lolmu.py \
+            calendario_local.py
 
       - name: Prueba preliminar de decaimiento y escala relativa
         run: |
