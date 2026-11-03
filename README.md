@@ -114,6 +114,11 @@ observación de ese día cuando se publique y reemplazar datos provisionales.
 La validación admite una serie cerrada sin pronóstico y rechaza fechas
 posteriores al cierre. Los archivos históricos existentes se conservan.
 
+**Inicio de la curva.** Cuando se informa la fecha de las primeras plántulas (o hay un primer conteo con plántulas), la curva
+del calendario propio vale 0 antes de esa fecha, arranca ese día en la fracción típica ya emergida al ver las primeras plantas
+(~18 %) y desde ahí sigue el calendario reescalado (error medio de la curva desde las primeras plántulas: 6,5 puntos, contra
+6,1 con el calendario por fecha).
+
 ## Aviso de flujos tardíos (ventana de siembra)
 
 Del 1 de mayo al 1 de julio la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días

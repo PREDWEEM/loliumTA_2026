@@ -180,6 +180,7 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             tt_limite=float(globals().get("dga_critico", 800.0)),
             tope_hasta_ultimo_cero=True,  # semanas ya cerradas por un conteo posterior en cero: probabilidad 0
             curva_desde_ultimo_cero=True,  # la curva acumulada arranca a mitad de camino entre el último cero y el primer conteo con plántulas
+            curva_desde_primeras=True,  # con primeras plántulas, la curva del calendario propio arranca ese día
             localidad="Tres Arroyos",
             nota_sitio=NOTA_TRES_ARROYOS,
             calendario_local=_calendario_local,
