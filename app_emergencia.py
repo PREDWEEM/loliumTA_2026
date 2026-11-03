@@ -130,16 +130,16 @@ NOTA_TRES_ARROYOS = (
     "**Validación en Tres Arroyos.** El modelo se calibró en Bordenave y se probó, sin reajustarlo, con los conteos de "
     "Tres Arroyos 2023 (29 visitas semanales a quincenales), 2024 (10 conteos cada 2–4 semanas) y 2026 (17 conteos), con "
     "el clima de cada campaña: 53 intervalos entre conteos, 9 con emergencia ≥ 5 % de la campaña por semana. Emitida al "
-    "comienzo de cada intervalo, la alerta separó bien los intervalos con flush: AUC 0,93 solo con clima y 0,94 con la "
-    "fecha de primeras plántulas. Los 9 flushes quedaron en *Alerta*, que se emitió en el 40 % de los intervalos. "
+    "comienzo de cada intervalo, la alerta separó bien los intervalos con gran flujo: AUC 0,93 solo con clima y 0,94 con la "
+    "fecha de primeras plántulas. Los 9 grandes flujos quedaron en *Alerta*, que se emitió en el 40 % de los intervalos. "
     "Por campaña: 2023 AUC 0,97; 2024 0,95; 2026 0,82.\n\n"
-    "**Límites en Tres Arroyos.** Tres campañas y 9 flushes. En 2023 y 2024 el primer conteo ya tenía plántulas (no hay "
+    "**Límites en Tres Arroyos.** Tres campañas y 9 grandes flujos. En 2023 y 2024 el primer conteo ya tenía plántulas (no hay "
     "cero inicial), y gran parte de los conteos de 2024 y 2026 son cada 2–4 semanas: la alerta con conteos está calibrada "
     "con conteos semanales, por eso conviene usar sobre todo la fecha de primeras plántulas.\n\n"
     "**Curva acumulada.** El panel inferior usa el calendario propio de Tres Arroyos (conteos de `data/campanias/`), "
     "sin la campaña en curso. Prediciendo cada campaña con las otras dos, el error medio de la curva en las fechas de "
     "conteo fue 2,2 / 4,4 / 8,9 puntos (2023 / 2024 / 2026), contra 7,6 / 6,9 / 13,3 con el calendario de Bordenave. "
-    "Recalibrar la probabilidad de flush con estas campañas no la mejoró, y usar el calendario local dentro de la alerta "
+    "Recalibrar la probabilidad de gran flujo con estas campañas no la mejoró, y usar el calendario local dentro de la alerta "
     "la empeoró levemente (AUC 0,92 contra 0,94): por eso la alerta sigue con el calendario de Bordenave. Con tres "
     "campañas, la banda del panel es el mínimo y el máximo observados; se afirma a medida que se suman campañas."
 )
@@ -214,7 +214,7 @@ if isinstance(_resultados_alerta, dict) and _resultados_alerta:
     st.subheader("📥 Descarga de resultados")
     st.caption(
         "Excel con los resultados que muestra la app para la fecha de emisión elegida: resumen (nivel y probabilidad de "
-        "flush, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
+        "gran flujo, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
         "acumulada con su rango, tiempo térmico diario desde el inicio, conteos usados, clima, parámetros y validación."
     )
     st.download_button(
