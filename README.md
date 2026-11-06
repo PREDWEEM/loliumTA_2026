@@ -119,7 +119,7 @@ del calendario propio vale 0 antes de esa fecha, arranca ese día en la fracció
 (~18 %) y desde ahí sigue el calendario reescalado (error medio de la curva desde las primeras plántulas: 6,5 puntos, contra
 6,1 con el calendario por fecha).
 
-## Aviso de flujos tardíos (ventana de siembra)
+## Aviso de flujos tardíos
 
 Del 1 de mayo al 1 de octubre la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
 emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas
