@@ -7,3 +7,4 @@ scipy
 openpyxl
 requests
 xlrd
+Authlib>=1.3.2
