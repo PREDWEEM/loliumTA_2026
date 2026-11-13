@@ -165,44 +165,39 @@ según el modelo; en <sitio> la emergencia suele cortarse antes»: la recalibrac
 la emergencia se extiende hasta el invierno, y en sitios donde se corta antes avisa de más (en Balcarce, en mayo de 2014,
 2025 y 2026, avisó 8 semanas y hubo 2 flujos tardíos). La probabilidad se sigue mostrando.
 
-## Residual a la siembra y post-emergente (guía de riesgo)
+## Residual a la siembra (guía de riesgo)
 
 Debajo de la alerta, un recuadro siempre visible muestra, para la **fecha de siembra prevista** (1/05–31/07; si no se
-carga, el 1/06 como referencia), el riesgo de nacimientos en dos períodos:
-
-- **Residual:** de 15 días antes a 45 días después de la siembra, el período de acción promedio de un herbicida residual.
-- **Post-emergente:** más de 45 días después de la siembra, fuera del alcance del residual; lo que nace ahí se controla con
-  un graminicida post-emergente.
-
-Cada período tiene tres tarjetas: riesgo, nacimientos en el período (mediana de las campañas, en plantas/m² y en % de la
-campaña) y recomendación. Se calcula con las 3 campañas de Tres Arroyos (`residual` en `alerta_lolmu_params.json`). Las plantas/m² usan la densidad de cada campaña con conteos; las campañas que solo
+carga, el 1/06 como referencia), el riesgo de nacimientos en la **ventana de acción del residual: de 15 días antes a 45 días
+después de la siembra**, el período de acción promedio de un herbicida residual. Tiene tres tarjetas: riesgo, nacimientos en
+la ventana (mediana de las campañas, en plantas/m² y en % de la campaña) y recomendación. Se calcula con las 3 campañas de Tres Arroyos (`residual` en `alerta_lolmu_params.json`). Las plantas/m² usan la densidad de cada campaña con conteos; las campañas que solo
 tienen la curva relativa usan la densidad de referencia del sitio (7947 pl/m² por campaña, mediana de las
 campañas con conteos):
 
-| Siembra | Nacimientos de −15 a +45 días (mediana) | Riesgo para el residual | Nacimientos después de +45 días (mediana) | Riesgo para el post-emergente | Campañas del sitio (residual / post) |
-|---|---|---|---|---|---|
-| 1/05 | 836 pl/m² (17,1 %) | Muy alto | 183 pl/m² (1,5 %) | Muy alto | 2023: 454 pl/m² / 21 pl/m² · 2024: 1600 pl/m² / 533 pl/m² · 2026: 836 pl/m² / 183 pl/m² |
-| 15/05 | 604 pl/m² (8,7 %) | Muy alto | 100 pl/m² (0,9 %) | Muy alto | 2023: 232 pl/m² / 13 pl/m² · 2024: 832 pl/m² / 100 pl/m² · 2026: 604 pl/m² / 110 pl/m² |
-| 1/06 | 384 pl/m² (3,7 %) | Muy alto | 9 pl/m² (0,3 %) | Medio | 2023: 98 pl/m² / 9 pl/m² · 2024: 674 pl/m² / 0 pl/m² · 2026: 384 pl/m² / 58 pl/m² |
-| 15/06 | 262 pl/m² (2,2 %) | Muy alto | 5 pl/m² (0,2 %) | Bajo | 2023: 38 pl/m² / 5 pl/m² · 2024: 533 pl/m² / 0 pl/m² · 2026: 262 pl/m² / 19 pl/m² |
-| 1/07 | 169 pl/m² (1,4 %) | Muy alto | 2 pl/m² (0,1 %) | Bajo | 2023: 18 pl/m² / 2 pl/m² · 2024: 533 pl/m² / 0 pl/m² · 2026: 169 pl/m² / 8 pl/m² |
+| Siembra | Nacimientos de −15 a +45 días (mediana) | Riesgo para el residual | Campañas del sitio |
+|---|---|---|---|
+| 1/05 | 836 pl/m² (17,1 %) | Muy alto | 2023: 454 pl/m² · 2024: 1600 pl/m² · 2026: 836 pl/m² |
+| 15/05 | 604 pl/m² (8,7 %) | Muy alto | 2023: 232 pl/m² · 2024: 832 pl/m² · 2026: 604 pl/m² |
+| 1/06 | 384 pl/m² (3,7 %) | Muy alto | 2023: 98 pl/m² · 2024: 674 pl/m² · 2026: 384 pl/m² |
+| 15/06 | 262 pl/m² (2,2 %) | Muy alto | 2023: 38 pl/m² · 2024: 533 pl/m² · 2026: 262 pl/m² |
+| 1/07 | 169 pl/m² (1,4 %) | Muy alto | 2023: 18 pl/m² · 2024: 533 pl/m² · 2026: 169 pl/m² |
 
-El nivel de riesgo surge de las plantas/m² que nacieron en cada período en una campaña típica (mediana). Se usan plantas
+El nivel de riesgo surge de las plantas/m² que nacieron en la ventana en una campaña típica (mediana). Se usan plantas
 y no el % de la campaña porque en sitios con mucha densidad una fracción chica son muchas plantas (en San Pedro, 0,8 % de
 la campaña fueron 29–42 pl/m²):
 
-| Riesgo | Nacimientos en el período | Residual | Post-emergente |
-|---|---|---|---|
-| 🔴 Muy alto | ≥ 50 pl/m² | Usar residual | Prever graminicida |
-| 🟠 Alto | 20–50 pl/m² | Residual recomendado | Graminicida probable |
-| 🟡 Medio | 5–20 pl/m² | Según infestación: residual si el lote tiene alta infestación o antecedentes de raigrás | Recorrer y decidir |
-| 🟢 Bajo | < 5 pl/m² | Residual solo en lotes muy infestados | Poco probable |
+| Riesgo | Nacimientos en la ventana | Recomendación |
+|---|---|---|
+| 🔴 Muy alto | ≥ 50 pl/m² | Usar residual |
+| 🟠 Alto | 20–50 pl/m² | Residual recomendado |
+| 🟡 Medio | 5–20 pl/m² | Según infestación: residual si el lote tiene alta infestación o antecedentes de raigrás |
+| 🟢 Bajo | < 5 pl/m² | Residual solo en lotes muy infestados |
 
 Las densidades son las registradas en los ensayos del sitio: en un lote con menos raigrás el riesgo es menor.
 
 Debajo de las tarjetas se indica el valor de cada campaña del sitio y qué proporción de las campañas cayó en cada nivel. Es
 un **riesgo histórico, no una predicción de la campaña**: ni la fecha de primeras plántulas ni el clima anticiparon cuánta
-emergencia queda después de la siembra. En todos los casos conviene recorrer el cultivo 30–45 días después de la siembra.
+emergencia queda después de la siembra.
 
 ## Condiciones de uso
 
