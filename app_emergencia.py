@@ -15,8 +15,8 @@ La aplicación científica original se conserva en ``app_emergencia_core.py``. A
   la barra lateral conserva los parámetros de la ventana de control.
 
 El motor sigue calculando como antes: su primer pico se usa como inicio estimado del reloj térmico hasta
-que se informa la fecha de las primeras plántulas. La alerta (``alerta_lolmu.py``) es la calibrada con
-17 campañas de Bordenave y validada con las campañas 2023, 2024 y 2026 de Tres Arroyos.
+que se informa la fecha de las primeras plántulas. La alerta (``alerta_lolmu.py``) es la del paquete lolium-comun,
+validada con las campañas 2023, 2024 y 2026 de Tres Arroyos.
 """
 from pathlib import Path
 
@@ -133,7 +133,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
     mostrar_horizonte_pronostico(df, "Tres Arroyos")
 
 NOTA_TRES_ARROYOS = (
-    "**Validación en Tres Arroyos.** El modelo se calibró en Bordenave y se probó, sin reajustarlo, con los conteos de "
+    "**Validación en Tres Arroyos.** El modelo se probó, sin reajustarlo, con los conteos de "
     "Tres Arroyos 2023 (29 visitas semanales a quincenales), 2024 (10 conteos cada 2–4 semanas) y 2026 (17 conteos), con "
     "el clima de cada campaña: 53 intervalos entre conteos, 9 con emergencia ≥ 5 % de la campaña por semana. Emitida al "
     "comienzo de cada intervalo, la alerta separó bien los intervalos con gran flujo: AUC 0,93 solo con clima y 0,94 con la "
@@ -144,9 +144,9 @@ NOTA_TRES_ARROYOS = (
     "con conteos semanales, por eso conviene usar sobre todo la fecha de primeras plántulas.\n\n"
     "**Curva acumulada.** El panel inferior usa el calendario propio de Tres Arroyos (conteos de `data/campanias/`), "
     "sin la campaña en curso. Prediciendo cada campaña con las otras dos, el error medio de la curva en las fechas de "
-    "conteo fue 2,2 / 4,4 / 8,9 puntos (2023 / 2024 / 2026), contra 7,6 / 6,9 / 13,3 con el calendario de Bordenave. "
+    "conteo fue 2,2 / 4,4 / 8,9 puntos (2023 / 2024 / 2026), contra 7,6 / 6,9 / 13,3 con el calendario de referencia regional. "
     "Recalibrar la probabilidad de gran flujo con estas campañas no la mejoró, y usar el calendario local dentro de la alerta "
-    "la empeoró levemente (AUC 0,92 contra 0,94): por eso la alerta sigue con el calendario de Bordenave. Con tres "
+    "la empeoró levemente (AUC 0,92 contra 0,94): por eso la alerta sigue con el calendario de referencia regional. Con tres "
     "campañas, la banda del panel es el mínimo y el máximo observados; se afirma a medida que se suman campañas."
 )
 
